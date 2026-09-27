@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{.Sheet.Name}} · {{weekRange .Sheet.Week}} · Weektime</title>
+  {{template "assets"}}
+  <!-- A shared week is for the people it was sent to, not for search engines. -->
+  <meta name="robots" content="noindex, nofollow">
+</head>
+<body>
+<div class="page">
+  <div class="page-wrapper">
+    <div class="page-header">
+      <div class="container-xl">
+        <div class="row g-3 align-items-center" data-live="header">
+          <div class="col-auto">
+            <span class="avatar avatar-md rounded-circle bg-primary-lt text-primary fs-2">{{initial .Sheet.Name}}</span>
+          </div>
+          <div class="col" style="min-width:0">
+            <div class="page-pretitle">Timesheet · Week {{.Sheet.Week.Num}}, {{.Sheet.Week.Year}}</div>
+            <h2 class="page-title text-truncate">{{.Sheet.Name}}, {{weekRange .Sheet.Week}}</h2>
+          </div>
+          <div class="col-12 col-sm-auto d-flex align-items-center gap-2">
+            <span class="badge bg-secondary-lt"><i class="ti ti-lock me-1"></i>Read-only</span>
+            <button class="btn btn-icon d-print-none" type="button" onclick="window.print()" title="Print" aria-label="Print"><i class="ti ti-printer"></i></button>
+            <button class="btn btn-icon d-print-none" type="button" id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+              <i class="ti ti-moon icon-to-dark"></i><i class="ti ti-sun icon-to-light"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="container-xl">
+        {{if .Owner}}
+        <div class="alert alert-azure d-flex align-items-center gap-3 page-banner d-print-none" role="status">
+          <i class="ti ti-eye fs-2"></i>
+          <div class="flex-fill">This is what people with this link see. To change anything, open <a href="{{weekURL .Sheet.Week}}">your week</a>.</div>
+        </div>
+        {{end}}
+
+        <div data-live="stats">{{template "weekstats" .}}</div>
+
+        <div class="card" data-live="sheet">
+          <div class="table-responsive">
+            <table class="table table-vcenter card-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Start</th>
+                  <th>End</th>
+                  <th class="text-end">Duration</th>
+                  <th class="w-50">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .Sheet.Days}}{{$day := .}}
+                  {{range $i, $e := .Entries}}
+                  <tr>
+                    <td class="text-nowrap{{if $i}} text-secondary{{end}}">{{if not $i}}<strong>{{dayShort $day.Date}}</strong>{{end}}</td>
+                    <td class="tabular">{{.Start}}</td>
+                    <td class="tabular">{{.End}}</td>
+                    <td class="text-end tabular">{{.Duration}}</td>
+                    <td class="entry-note">{{.Note}}</td>
+                  </tr>
+                  {{end}}
+                  {{if gt (len .Entries) 1}}
+                  <tr class="bg-surface-secondary">
+                    <td colspan="3" class="text-secondary small">{{dayName .Date}} total</td>
+                    <td class="text-end tabular fw-bold">{{duration .Minutes}}</td>
+                    <td></td>
+                  </tr>
+                  {{end}}
+                {{end}}
+                {{if not .Sheet.Minutes}}
+                <tr><td colspan="5" class="text-center text-secondary py-4">Nothing logged this week yet.</td></tr>
+                {{end}}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th colspan="3">Week total · {{.Sheet.DaysWorked}} {{if eq .Sheet.DaysWorked 1}}day{{else}}days{{end}}</th>
+                  <th class="text-end tabular fs-4">{{duration .Sheet.Minutes}}</th>
+                  <th></th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <p class="text-center text-secondary small mt-4">
+          Shared from <strong>Weektime</strong>. It updates by itself when {{.Sheet.Name}} logs more time.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var root = document.documentElement;
+    var next = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-bs-theme', next);
+    try { localStorage.setItem('theme', next); } catch (e) {}
+  });
+
+  // When the owner logs something, fetch the page again and swap in what
+  // changed. If they turn the link off, the fetch says so and so does the page.
+  function refresh() {
+    fetch(location.pathname, { cache: 'no-store' }).then(function (res) {
+      if (res.status === 404) { location.reload(); return; }
+      if (!res.ok) return;
+      return res.text().then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        document.querySelectorAll('[data-live]').forEach(function (cur) {
+          var fresh = doc.querySelector('[data-live="' + cur.getAttribute('data-live') + '"]');
+          if (fresh && fresh.innerHTML !== cur.innerHTML) cur.innerHTML = fresh.innerHTML;
+        });
+        if (doc.title) document.title = doc.title;
+      });
+    }).catch(function () {});
+  }
+  if (window.EventSource) {
+    var es = new EventSource(location.pathname + '/events'), opened = false, timer;
+    es.addEventListener('changed', function () { clearTimeout(timer); timer = setTimeout(refresh, 120); });
+    es.onopen = function () { if (opened) refresh(); opened = true; };
+    es.onerror = function () { if (es.readyState === EventSource.CLOSED) refresh(); };
+  }
+})();
+</script>
+</body>
+</html>

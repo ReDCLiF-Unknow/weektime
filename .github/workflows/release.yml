@@ -1,0 +1,160 @@
+name: Release
+
+# Publishes binaries when you push a version tag, e.g.
+#   git tag v1.0.0 && git push origin v1.0.0
+# GitHub then counts every download of every file, permanently, and the
+# "downloads" badge in the README reads that total.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish"
+        required: true
+
+permissions:
+  contents: write # to create the release and upload the binaries
+
+jobs:
+  # The same image CI publishes from main, tagged with this version number too.
+  # This runs first: the release notes tell people to `docker run` this tag, so
+  # the image has to exist before those instructions are published.
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          image="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/weektime"
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t "$image:$VERSION" -t "$image:latest" --push .
+
+  release:
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-tags: true # the release notes are the tag's own message
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      # SQLite here is pure Go (modernc.org/sqlite), so every platform
+      # cross-compiles from this one runner with CGO switched off.
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            export GOOS=${target%/*} GOARCH=${target#*/}
+            name="weektime_${VERSION}_${GOOS}_${GOARCH}"
+            stage="build/$name"
+            mkdir -p "$stage"
+            ext=""
+            [ "$GOOS" = windows ] && ext=".exe"
+            echo "building $name"
+            go build -trimpath -ldflags="-s -w" -o "$stage/weektime-server$ext" ./cmd/server
+            go build -trimpath -ldflags="-s -w" -o "$stage/weektime$ext" ./cmd/weektime
+            cp README.md LICENSE "$stage/"
+            if [ "$GOOS" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -czf "dist/$name.tar.gz" -C build "$name"
+            fi
+          done
+          (cd dist && sha256sum ./* > checksums.txt)
+          ls -lh dist
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/weektime"
+
+          # What is new comes from the tag's own message, so it is written once,
+          # where the tag is made. printf rather than a heredoc: the message is
+          # prose and may contain backticks, which a heredoc would try to run.
+          : > notes.md
+          whats_new=$(git for-each-ref "refs/tags/$VERSION" --format='%(contents)')
+          if [ -n "$whats_new" ]; then
+            printf '%s\n\n---\n\n' "$whats_new" >> notes.md
+          fi
+
+          cat >> notes.md <<NOTES
+          Two ways to run it. Either way, open <http://localhost:8080> and pick a display name.
+
+          ### Docker
+
+          \`\`\`
+          docker run -d --name weektime -p 8080:8080 -v weektime:/data $image:$VERSION
+          \`\`\`
+
+          The image carries the server and the CLI and nothing else, runs as a non-root user, and
+          keeps the database in the \`/data\` volume so it survives upgrades. It is built for
+          \`linux/amd64\` and \`linux/arm64\`, so a Raspberry Pi works. \`$image:latest\` follows
+          the newest release.
+
+          With [compose.yaml](https://github.com/$REPO/blob/$VERSION/compose.yaml) instead:
+
+          \`\`\`
+          docker compose up -d
+          \`\`\`
+
+          ### A prebuilt binary
+
+          Download the archive for your system below and unpack it, then run \`weektime-server\`.
+          \`weektime\` beside it is the command-line client.
+
+          Nothing else is needed: the database is a SQLite file created on first run, and there
+          is no runtime dependency to install. Databases from earlier versions are upgraded
+          on start-up. \`checksums.txt\` holds the SHA-256 of each archive.
+
+          ---
+
+          Commits: <https://github.com/$REPO/commits/$VERSION>
+          NOTES
+          echo "--- notes.md ---"
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Re-running this workflow on a tag that has already been published
+          # (the workflow_dispatch input above) should update the release
+          # rather than fall over on a name that is taken.
+          if gh release view "$VERSION" > /dev/null 2>&1; then
+            echo "$VERSION is already published; updating it"
+            gh release upload "$VERSION" dist/* --clobber
+            gh release edit "$VERSION" --title "Weektime $VERSION" --notes-file notes.md
+          else
+            gh release create "$VERSION" dist/* --title "Weektime $VERSION" --notes-file notes.md
+          fi

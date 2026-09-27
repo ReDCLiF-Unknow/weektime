@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{.Title}} · Weektime</title>
+  {{template "assets"}}
+</head>
+<body>
+<div class="page page-center">
+  <div class="container container-tight py-4">
+    <div class="text-center mb-4">
+      <span class="avatar avatar-lg bg-primary text-white"><i class="ti ti-clock-hour-4 fs-1"></i></span>
+      <div class="h1 mt-3 mb-0">Weektime</div>
+    </div>
+
+    <div class="card card-md">
+      <div class="card-body">
+        <h2 class="h2 text-center mb-1">{{.Heading}}</h2>
+        <p class="text-secondary text-center mb-4">{{.Subtitle}}</p>
+        {{if .Error}}<div class="alert alert-danger" role="alert">{{.Error}}</div>{{end}}
+
+        {{if .Link}}
+        <!-- Handing over the private link. This page is at that link, so
+             bookmarking the page is bookmarking the link. -->
+        <label class="form-label" for="link">Your private link</label>
+        <div class="input-group">
+          <input id="link" type="text" class="form-control key-link" value="{{.Link}}" readonly onfocus="this.select()">
+          <button class="btn" type="button" id="copy"><i class="ti ti-copy me-1"></i>Copy</button>
+        </div>
+        <div class="alert alert-info mt-3 mb-4" role="note">
+          <div class="d-flex gap-2">
+            <i class="ti ti-bookmark fs-2"></i>
+            <div>
+              <strong>Bookmark this page now</strong> (<kbd>Ctrl</kbd>+<kbd>D</kbd>, or <kbd>⌘</kbd>+<kbd>D</kbd> on a Mac):
+              its address is the link. Lose it and this timesheet is gone, as there is no password to reset and no email to send.
+            </div>
+          </div>
+        </div>
+        <form method="post" action="/me/link/saved">
+          <input type="hidden" name="next" value="{{.Next}}">
+          <button type="submit" class="btn btn-primary w-100"><i class="ti ti-check me-1"></i>I've saved it, open my week</button>
+        </form>
+        <div class="text-center mt-3"><a class="text-secondary small" href="{{.Next}}">Not now</a></div>
+        {{else}}
+        <form method="post" action="/welcome">
+          <div class="mb-3">
+            <label class="form-label" for="name">Your name</label>
+            <input id="name" type="text" name="name" class="form-control" placeholder="e.g. Alex" required maxlength="40" autofocus autocomplete="name">
+            <div class="form-hint">Shown at the top of any week you share.</div>
+          </div>
+          <input type="hidden" name="next" value="{{.Next}}">
+          <button type="submit" class="btn btn-primary w-100">Start my timesheet</button>
+        </form>
+        {{end}}
+      </div>
+    </div>
+
+    {{if not .Link}}
+    <details class="text-center text-secondary mt-3">
+      <summary class="small" style="cursor:pointer">Already have a private link?</summary>
+      <p class="small mt-2 mb-2">Open it, or paste it here.</p>
+      <form method="post" action="/welcome/link">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <div class="input-group">
+          <input type="text" name="link" class="form-control" placeholder="https://…/u/…" required autocomplete="off" aria-label="Your private link">
+          <button class="btn" type="submit">Sign in</button>
+        </div>
+      </form>
+    </details>
+    {{end}}
+  </div>
+</div>
+{{if .Link}}
+<script>
+  document.getElementById('copy').addEventListener('click', function () {
+    var btn = this, link = document.getElementById('link');
+    (navigator.clipboard ? navigator.clipboard.writeText(link.value) : Promise.reject()).catch(function () {
+      link.select(); document.execCommand('copy');
+    }).then(function () { btn.innerHTML = '<i class="ti ti-check me-1"></i>Copied'; });
+  });
+</script>
+{{end}}
+</body>
+</html>

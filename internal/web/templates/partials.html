@@ -1,0 +1,207 @@
+{{define "assets"}}
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⏱️%3C/text%3E%3C/svg%3E">
+  <!-- Installable as an app: "Add to Home Screen" gives it its own icon and a window without browser chrome -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <meta name="theme-color" content="#1d273b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Weektime">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')); } catch (e) {}
+  </script>
+  <!-- Everything is served from this server: no CDN sees who is using your
+       timesheet, and the app works on a network with no way out. Regenerate
+       with tools/vendor/fetch.py. -->
+  <link rel="stylesheet" href="/static/vendor/inter.css">
+  <link rel="stylesheet" href="/static/vendor/tabler.min.css">
+  <link rel="stylesheet" href="/static/vendor/tabler-icons.css">
+  <style>
+    :root { --tblr-font-sans-serif: 'Inter', system-ui, sans-serif; }
+    body { font-feature-settings: "cv11", "ss01"; }
+    /* Times line up in columns */
+    .tabular { font-variant-numeric: tabular-nums; }
+    /* Subtle dot grid that follows the light/dark theme */
+    .page-wrapper, .page-center {
+      background-image: radial-gradient(circle, color-mix(in srgb, var(--tblr-body-color) 14%, transparent) 1.2px, transparent 1.4px);
+      background-size: 22px 22px;
+    }
+    /* Keep the count badge vertically centred on the row (Tabler pins it to the corner) */
+    .navbar-vertical .nav-link { align-items: center; }
+    .navbar-vertical .nav-link .badge { position: static !important; transform: none !important; margin-left: 0; }
+    :root[data-bs-theme="dark"] .icon-to-dark, :root:not([data-bs-theme="dark"]) .icon-to-light { display: none; }
+    .stat-icon { width: 2.5rem; height: 2.5rem; }
+    /* Tabler lets a vertical navbar's nav grow to fill the sidebar; with several
+       sections stacked, keep each at its natural height so the user chip sits last. */
+    .navbar-vertical .navbar-collapse > .navbar-nav { flex: 0 0 auto !important; }
+    .sidebar-user { border-top: 1px solid var(--tblr-border-color); }
+    /* The sidebar follows the page theme. Tabler's navbar colours are fixed
+       light-theme greys (#49566c), which on a dark sidebar are barely readable,
+       so derive them from the theme's own text colour instead. */
+    .navbar.navbar-vertical {
+      --tblr-navbar-color: color-mix(in srgb, var(--tblr-body-color) 72%, transparent);
+      --tblr-navbar-hover-color: var(--tblr-body-color);
+      --tblr-navbar-active-color: var(--tblr-body-color);
+      color: var(--tblr-navbar-color);
+    }
+    .navbar-vertical .navbar-nav .nav-link.active { font-weight: 600; }
+    .week-hours { font-variant-numeric: tabular-nums; }
+
+    /* Banners across the top of the page. The text asks for enough room to
+       read comfortably next to its icon; when the buttons beside it would
+       squeeze it narrower than that, they drop onto a line of their own. */
+    .page-banner > .flex-fill { flex: 1 1 17rem !important; min-width: min(100%, 17rem); }
+    @media (max-width: 575.98px) { .page-banner > .ti { display: none; } }
+
+    /* The week at a glance: a bar a day, scaled to a full working day or the
+       longest day, whichever is more */
+    .week-chart { display: grid; grid-template-columns: repeat(7, 1fr); gap: .5rem; height: 5.5rem; }
+    .bar-col { display: flex; flex-direction: column; align-items: center; gap: .3rem; min-width: 0; }
+    .bar-track { flex: 1; width: 100%; max-width: 2.25rem; display: flex; align-items: flex-end;
+                 border-radius: 6px; background: color-mix(in srgb, var(--tblr-body-color) 6%, transparent); }
+    .bar { width: 100%; border-radius: 6px; background: var(--tblr-primary); min-height: 0; transition: height .25s; }
+    .bar-label { font-size: .7rem; font-weight: 600; color: var(--tblr-secondary); line-height: 1; }
+    .bar-col.today .bar-label { color: var(--tblr-primary); }
+    .bar-col.today .bar-track { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tblr-primary) 55%, transparent); }
+
+    /* Days: a heading each, with its total, and the entries under it */
+    .day-head { display: flex; align-items: center; gap: .5rem; padding: .55rem 1rem; font-size: .8rem;
+                background: var(--tblr-bg-surface-secondary); color: var(--tblr-body-color); }
+    .day-head .day-name { font-weight: 600; text-transform: uppercase; letter-spacing: .04em; font-size: .75rem; }
+    .day-head .day-total { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .day-head.day-empty { color: var(--tblr-secondary); }
+    .day-head.day-empty .day-total { font-weight: 400; }
+    .day-head.is-today { box-shadow: inset 3px 0 0 var(--tblr-primary); }
+    .day-add { opacity: 0; transition: opacity .15s; color: var(--tblr-secondary); border: 0; background: transparent;
+               width: 1.6rem; height: 1.6rem; padding: 0; border-radius: var(--tblr-border-radius); }
+    .day-add:hover { color: var(--tblr-body-color); background: color-mix(in srgb, var(--tblr-body-color) 10%, transparent); }
+    .day-head:hover .day-add, .day-add:focus { opacity: 1; }
+    @media (hover: none) { .day-add { opacity: 1; } }
+
+    .entry-row { transition: background .15s; }
+    .entry-row:hover { background: var(--tblr-bg-surface-secondary); }
+    .entry-row .entry-actions { opacity: 0; transition: opacity .15s; }
+    .entry-row:hover .entry-actions, .entry-row:focus-within .entry-actions { opacity: 1; }
+    @media (hover: none) { .entry-row .entry-actions { opacity: 1; } }
+    .entry-time { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; min-width: 7.5rem; }
+    .entry-note { overflow-wrap: anywhere; }
+    .entry-duration { min-width: 4.25rem; text-align: center; font-variant-numeric: tabular-nums; }
+
+    /* Inline editing: [data-edit-scope] toggles between its view and its form */
+    [data-edit-scope] [data-edit-form] { display: none; }
+    [data-edit-scope].is-editing [data-edit-form] { display: block; }
+    [data-edit-scope].is-editing [data-edit-view] { display: none; }
+
+    /* The private link, handed over after signing up */
+    .key-link { font-family: var(--tblr-font-monospace); font-size: .85rem; }
+
+    /* Toasts (e.g. "Entry deleted · Undo") */
+    #toasts { position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%); z-index: 2000;
+              display: flex; flex-direction: column; gap: .5rem; align-items: center; pointer-events: none; }
+    .toast-item { pointer-events: auto; display: flex; align-items: center; gap: 1rem; padding: .6rem .9rem;
+                  border-radius: var(--tblr-border-radius); background: #1d273b; color: #fff; font-size: .875rem;
+                  box-shadow: 0 6px 24px rgba(0,0,0,.35); animation: toast-in .18s ease-out; }
+    .toast-item button { background: none; border: 0; color: #6ea8fe; font-weight: 600; padding: 0; cursor: pointer; }
+    .toast-item button:hover { text-decoration: underline; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ---- Phones and tablets ---- */
+    .mobile-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030; display: flex;
+                   background: var(--tblr-bg-surface); border-top: 1px solid var(--tblr-border-color);
+                   padding-bottom: env(safe-area-inset-bottom); }
+    .mobile-tabs a { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                     gap: 2px; min-height: 56px; color: var(--tblr-secondary); text-decoration: none; font-size: .7rem; }
+    .mobile-tabs a i { font-size: 1.45rem; line-height: 1; }
+    .mobile-tabs a.active { color: var(--tblr-primary); }
+    .mobile-tabs .avatar { width: 1.45rem; height: 1.45rem; font-size: .7rem; }
+    .tab-badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 1.1rem; height: 1.1rem; padding: 0 .3rem;
+                 border-radius: 999px; font-size: .65rem; font-style: normal; font-weight: 700; line-height: 1.1rem;
+                 text-align: center; background: var(--tblr-blue); color: #fff; }
+    @media (max-width: 991.98px) {
+      /* keep content and toasts clear of the tab bar (and the home indicator) */
+      .page-wrapper { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+      html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+      #toasts { bottom: calc(76px + env(safe-area-inset-bottom)); }
+    }
+    @media (max-width: 767.98px) {
+      /* 16px inputs stop iPhones zooming the page when a field is focused */
+      .form-control, .form-control-sm, .form-select { font-size: 16px !important; min-height: 44px; }
+      /* comfortable touch targets (44px) */
+      .btn { min-height: 44px; }
+      .btn-icon, .entry-actions .btn, .day-add {
+        width: 44px; height: 44px; min-width: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+      .navbar-toggler { min-width: 44px; min-height: 44px; }
+      .dropdown-item { padding: .75rem 1rem; }
+      .entry-time { min-width: 0; }
+      .day-head { padding-right: .25rem; }
+    }
+    @media print {
+      .page-wrapper, .page-center { background-image: none; }
+    }
+  </style>
+{{end}}
+
+{{/* One entry on its owner's week page. Argument: entryRow. */}}
+{{define "entryrow"}}{{with .Entry}}
+<div class="list-group-item entry-row" data-edit-scope>
+  <div class="row align-items-center g-2 g-sm-3" data-edit-view>
+    <div class="col-auto entry-time">{{.Start}} – {{.End}}</div>
+    <div class="col-auto"><span class="badge bg-blue-lt text-blue entry-duration">{{.Duration}}</span></div>
+    <div class="col-12 col-sm order-last order-sm-0 entry-note{{if not .Note}} text-secondary{{end}}">{{if .Note}}{{.Note}}{{else}}<span class="small">No note</span>{{end}}</div>
+    <div class="col-auto ms-auto entry-actions d-flex gap-1">
+      <button type="button" class="btn btn-icon btn-sm btn-ghost-secondary" data-edit-toggle title="Edit entry" aria-label="Edit entry"><i class="ti ti-pencil"></i></button>
+      <form method="post" action="/entries/{{.ID}}/delete" data-inplace data-undo>
+        <input type="hidden" name="next" value="{{$.Path}}">
+        <button type="submit" class="btn btn-icon btn-sm btn-ghost-danger" title="Delete entry" aria-label="Delete entry"><i class="ti ti-trash"></i></button>
+      </form>
+    </div>
+  </div>
+
+  <form method="post" action="/entries/{{.ID}}/edit" data-inplace data-edit-form data-entry-form>
+    <input type="hidden" name="next" value="{{$.Path}}">
+    <div class="row g-2 align-items-center">
+      <div class="col-12 col-md-3"><input type="date" name="date" class="form-control" value="{{.Date}}" required aria-label="Date"></div>
+      <div class="col-6 col-md-2"><input type="time" name="start" class="form-control" value="{{.Start}}" required aria-label="Start"></div>
+      <div class="col-6 col-md-2"><input type="time" name="end" class="form-control" value="{{.End}}" required aria-label="End"></div>
+      <div class="col-12 col-md-3"><input type="text" name="note" class="form-control" value="{{.Note}}" placeholder="Note" maxlength="200" aria-label="Note" autocomplete="off"></div>
+      <div class="col-12 col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-primary flex-fill">Save</button>
+        <button type="button" class="btn btn-icon" data-edit-toggle title="Cancel" aria-label="Cancel"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+  </form>
+</div>
+{{end}}{{end}}
+
+{{/* The week's numbers: total, days worked, and a bar a day. Argument:
+     anything with a Sheet and Today, which both the owner's page and a
+     shared week have. */}}
+{{define "weekstats"}}
+<div class="row row-cards mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card card-sm h-100"><div class="card-body d-flex align-items-center"><div class="row align-items-center flex-fill">
+      <div class="col-auto"><span class="stat-icon bg-blue-lt text-blue rounded d-flex align-items-center justify-content-center"><i class="ti ti-hourglass fs-2"></i></span></div>
+      <div class="col"><div class="fw-bold fs-3 tabular">{{duration .Sheet.Minutes}}</div><div class="text-secondary">Week total</div></div>
+    </div></div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card card-sm h-100"><div class="card-body d-flex align-items-center"><div class="row align-items-center flex-fill">
+      <div class="col-auto"><span class="stat-icon bg-green-lt text-green rounded d-flex align-items-center justify-content-center"><i class="ti ti-calendar-event fs-2"></i></span></div>
+      <div class="col"><div class="fw-bold fs-3 tabular">{{.Sheet.DaysWorked}} <span class="fs-5 fw-normal text-secondary">of 7</span></div><div class="text-secondary">Days · avg {{average .Sheet}}</div></div>
+    </div></div></div>
+  </div>
+  <div class="col-12 col-md-6">
+    <div class="card card-sm h-100"><div class="card-body">
+      <div class="week-chart" role="img" aria-label="Hours per day">
+        {{range .Sheet.Days}}
+        <div class="bar-col{{if eq .Date $.Today}} today{{end}}" title="{{dayName .Date}}: {{duration .Minutes}}">
+          <div class="bar-track"><div class="bar" style="height: {{barHeight .Minutes $.Sheet}}%"></div></div>
+          <div class="bar-label">{{dayLetter .Date}}</div>
+        </div>
+        {{end}}
+      </div>
+    </div></div>
+  </div>
+</div>
+{{end}}

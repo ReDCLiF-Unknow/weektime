@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{if eq .View "shared"}}Shared links{{else}}{{weekRange .Sheet.Week}}{{end}} · Weektime</title>
+  {{template "assets"}}
+</head>
+<body>
+<div class="page">
+
+  <!-- Sidebar -->
+  <aside class="navbar navbar-vertical navbar-expand-lg">
+    <div class="container-fluid">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <h1 class="navbar-brand navbar-brand-autodark">
+        <a href="/" class="d-flex align-items-center text-decoration-none">
+          <span class="avatar avatar-sm bg-primary text-white me-2"><i class="ti ti-clock-hour-4"></i></span>
+          <span class="fw-bold">Weektime</span>
+        </a>
+      </h1>
+      <div class="collapse navbar-collapse" id="sidebar-menu">
+        <ul class="navbar-nav pt-lg-3">
+          <li class="nav-item">
+            <a class="nav-link{{if and (eq .View "week") .IsThisWeek}} active{{end}}" href="/">
+              <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-calendar-week"></i></span>
+              <span class="nav-link-title">This week</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link{{if eq .View "shared"}} active{{end}}" href="/shared">
+              <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-share"></i></span>
+              <span class="nav-link-title">Shared links</span>
+              <span class="ms-auto" data-live="shared-badge">{{if .ShareCount}}<span class="badge bg-blue-lt text-blue">{{.ShareCount}}</span>{{end}}</span>
+            </a>
+          </li>
+        </ul>
+
+        <div class="px-3 mt-3 mb-1">
+          <div class="text-uppercase text-secondary small fw-bold">Weeks</div>
+        </div>
+        <ul class="navbar-nav" data-live="sidebar-weeks">
+          {{range .Recent}}
+          <li class="nav-item">
+            <a class="nav-link{{if and (eq $.View "week") (eq $.Sheet.Week .Week)}} active{{end}}" href="{{weekURL .Week}}">
+              <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-calendar"></i></span>
+              <span class="nav-link-title text-truncate">{{if eq .Week $.ThisWeek}}This week{{else}}{{weekRange .Week}}{{end}}</span>
+              <span class="ms-auto text-secondary small week-hours">{{if .Minutes}}{{duration .Minutes}}{{end}}</span>
+            </a>
+          </li>
+          {{end}}
+        </ul>
+
+        <a href="#profile-modal" class="sidebar-user d-flex align-items-center text-decoration-none text-reset mt-auto pt-3 pb-1 px-3" data-bs-toggle="modal" title="Your profile" id="profile-open">
+          <span class="d-flex align-items-center flex-fill" style="min-width:0" data-live="me-chip">
+            <span class="avatar avatar-sm rounded-circle bg-{{color .User.ID}}-lt me-2">{{initial .User.Name}}</span>
+            <span class="flex-fill text-truncate">{{.User.Name}}</span>
+          </span>
+          <i class="ti ti-settings text-secondary"></i>
+        </a>
+      </div>
+    </div>
+  </aside>
+
+  <div class="page-wrapper">
+
+    <!-- Header -->
+    <div class="page-header d-print-none">
+      <div class="container-xl">
+        <div class="row g-2 align-items-center" data-live="header">
+          <div class="col-12 col-sm">
+            {{if eq .View "shared"}}
+              <div class="page-pretitle">Read-only links you have sent</div>
+              <h2 class="page-title">Shared links</h2>
+            {{else}}
+              <div class="page-pretitle">{{if .IsThisWeek}}This week · {{end}}Week {{.Sheet.Week.Num}}, {{.Sheet.Week.Year}}</div>
+              <h2 class="page-title">{{weekRange .Sheet.Week}}</h2>
+            {{end}}
+          </div>
+          <div class="col-12 col-sm-auto ms-sm-auto d-flex align-items-center gap-2">
+            {{if eq .View "week"}}
+            <div class="btn-group" role="group" aria-label="Weeks">
+              <a class="btn btn-icon" href="{{weekURL .Sheet.Week.Prev}}" title="Previous week" aria-label="Previous week"><i class="ti ti-chevron-left"></i></a>
+              <a class="btn" href="/"{{if .IsThisWeek}} aria-current="page"{{end}}>This week</a>
+              <a class="btn btn-icon" href="{{weekURL .Sheet.Week.Next}}" title="Next week" aria-label="Next week"><i class="ti ti-chevron-right"></i></a>
+            </div>
+            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#share-modal"><i class="ti ti-share me-1"></i>Share<span class="d-none d-md-inline">&nbsp;this week</span></button>
+            {{end}}
+            <button class="btn btn-icon ms-auto ms-sm-0" type="button" id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+              <i class="ti ti-moon icon-to-dark"></i><i class="ti ti-sun icon-to-light"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="container-xl">
+
+      <!-- There are no passwords, so the private link is the only way back
+           in. Say so until they tell us they have it somewhere. -->
+      <div data-live="key-banner">
+      {{if not .User.LinkSaved}}
+      <div class="alert alert-info d-flex flex-wrap align-items-center gap-3 page-banner" role="status">
+        <i class="ti ti-key fs-2"></i>
+        <div class="flex-fill">
+          <strong>Bookmark your private link.</strong>
+          It is the only way back into this timesheet. Clear your browser's data without it and these
+          hours are gone: there is no password to reset and no email to send.
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#profile-modal">
+            <i class="ti ti-eye me-1"></i>Show it
+          </button>
+          <form method="post" action="/me/link/saved" data-inplace data-toast="Reminder dismissed">
+            <input type="hidden" name="next" value="{{.Path}}">
+            <button class="btn btn-info" type="submit"><i class="ti ti-check me-1"></i>I've saved it</button>
+          </form>
+        </div>
+      </div>
+      {{end}}
+      </div>
+
+      {{if eq .View "shared"}}
+        <!-- Every read-only link that is out, and a way to turn each one off -->
+        <div data-live="shares">
+        {{if .Shares}}
+        <div class="card">
+          <div class="list-group list-group-flush">
+            {{range .Shares}}
+            <div class="list-group-item">
+              <div class="row align-items-center g-3">
+                <div class="col-auto d-none d-sm-block"><span class="avatar bg-blue-lt text-blue"><i class="ti ti-link fs-2"></i></span></div>
+                <div class="col" style="min-width:0">
+                  <a class="fw-bold text-reset" href="{{weekURL .Week}}">{{weekRange .Week}}</a>
+                  <div class="text-secondary small">Week {{.Week.Num}} · {{duration .Minutes}} logged</div>
+                  <div class="input-group input-group-sm mt-2" style="max-width: 32rem">
+                    <input type="text" class="form-control key-link" value="{{.URL}}" readonly onfocus="this.select()" aria-label="Share link for {{weekRange .Week}}">
+                    <button class="btn" type="button" data-copy="{{.URL}}"><i class="ti ti-copy me-1"></i>Copy</button>
+                  </div>
+                </div>
+                <div class="col-auto">
+                  <form method="post" action="/shares/{{.ID}}/revoke" data-inplace data-toast="Link turned off" onsubmit="return confirm('Turn this link off? Anyone who has it will no longer see this week.')">
+                    <input type="hidden" name="next" value="{{$.Path}}">
+                    <button class="btn btn-outline-danger" type="submit"><i class="ti ti-link-off me-1"></i>Revoke</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            {{end}}
+          </div>
+        </div>
+        {{else}}
+        <div class="card"><div class="card-body">
+          <div class="empty">
+            <div class="empty-icon"><i class="ti ti-share fs-1"></i></div>
+            <p class="empty-title">Nothing shared</p>
+            <p class="empty-subtitle text-secondary">Open a week and press <strong>Share this week</strong> to get a read-only link for a manager, client or accountant.</p>
+          </div>
+        </div></div>
+        {{end}}
+        </div>
+
+      {{else}}
+        <div data-live="stats">{{template "weekstats" .}}</div>
+
+        <!-- Log time (not live-updated, so refreshes never disturb what you're typing) -->
+        <div class="card mb-3">
+          <div class="card-body">
+            <form method="post" action="/entries" id="add-entry-form" data-inplace data-entry-form>
+              <input type="hidden" name="next" value="{{.Path}}">
+              <div class="row g-2">
+                <div class="col-12 col-md-3">
+                  <input type="date" name="date" class="form-control" value="{{.NewDate}}" required aria-label="Date" data-default="{{.NewDate}}">
+                </div>
+                <div class="col-6 col-md-2">
+                  <input type="time" name="start" class="form-control" required aria-label="Start" title="Start">
+                </div>
+                <div class="col-6 col-md-2">
+                  <input type="time" name="end" class="form-control" required aria-label="End" title="End">
+                </div>
+                <div class="col-12 col-md">
+                  <div class="input-icon">
+                    <span class="input-icon-addon"><i class="ti ti-notes"></i></span>
+                    <input type="text" name="note" class="form-control" placeholder="What was it? (optional)" maxlength="200" autocomplete="off">
+                  </div>
+                </div>
+                <div class="col-12 col-md-auto d-grid">
+                  <button class="btn btn-primary" type="submit"><i class="ti ti-plus me-1"></i><span data-preview>Log time</span></button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- The week, a day at a time -->
+        <div class="card" data-live="days">
+          <div class="list-group list-group-flush">
+            {{range .Sheet.Days}}
+            <div class="day-head{{if not .Minutes}} day-empty{{end}}{{if eq .Date $.Today}} is-today{{end}}">
+              <span class="day-name">{{dayName .Date}}</span>
+              <span class="text-secondary">{{dayDate .Date}}</span>
+              {{if eq .Date $.Today}}<span class="badge bg-primary text-white">Today</span>{{end}}
+              <span class="day-total">{{if .Minutes}}{{duration .Minutes}}{{else}}–{{end}}</span>
+              <button type="button" class="day-add d-print-none" data-log-day="{{.Date}}" title="Log time on {{dayName .Date}}" aria-label="Log time on {{dayShort .Date}}"><i class="ti ti-plus"></i></button>
+            </div>
+            {{range .Entries}}{{template "entryrow" (row $.Path .)}}{{end}}
+            {{end}}
+          </div>
+          <div class="card-footer d-flex align-items-center">
+            <span class="text-secondary">{{with len .Sheet.Entries}}{{if eq . 1}}1 entry{{else}}{{.}} entries{{end}}{{else}}Nothing logged yet{{end}}</span>
+            <span class="ms-auto fw-bold tabular">Week total&nbsp;&nbsp;{{duration .Sheet.Minutes}}</span>
+          </div>
+        </div>
+      {{end}}
+
+      </div>
+    </div>
+  </div>
+</div>
+
+{{if eq .View "week"}}
+<!-- Share dialog -->
+<div class="modal modal-blur fade" id="share-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Share {{weekRange .Sheet.Week}}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" data-live="share">
+        {{with .Share}}
+        <label class="form-label" for="share-url">Read-only link</label>
+        <div class="input-group">
+          <input type="text" id="share-url" class="form-control key-link" value="{{$.ShareURL}}" readonly onfocus="this.select()">
+          <button class="btn" type="button" data-copy="{{$.ShareURL}}"><i class="ti ti-copy me-1"></i>Copy</button>
+        </div>
+        <div class="form-hint mt-2">
+          Whoever opens it sees your name, this week's entries and its totals, and cannot change anything.
+          It stays up to date as you log more.
+        </div>
+        <form method="post" action="/shares/{{.ID}}/revoke" class="mt-3" data-inplace data-toast="Link turned off" onsubmit="return confirm('Turn this link off? Anyone who has it will no longer see this week.')">
+          <input type="hidden" name="next" value="{{$.Path}}">
+          <button class="btn btn-outline-danger btn-sm" type="submit"><i class="ti ti-link-off me-1"></i>Revoke this link</button>
+        </form>
+        {{else}}
+        <div class="d-flex align-items-start gap-3">
+          <span class="avatar bg-blue-lt text-blue"><i class="ti ti-link fs-2"></i></span>
+          <p class="text-secondary mb-0">
+            Get a link to this week for a manager, client or accountant. They see your name, the entries and the totals,
+            and cannot edit anything. You can turn the link off whenever you like.
+          </p>
+        </div>
+        <form method="post" action="/week/{{.Sheet.Week}}/share" data-inplace class="mt-3">
+          <button class="btn btn-primary w-100" type="submit"><i class="ti ti-link me-1"></i>Create a read-only link</button>
+        </form>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+<!-- Profile dialog -->
+<div class="modal modal-blur fade" id="profile-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Your profile</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-center mb-4">
+          <span data-live="me-avatar"><span class="avatar avatar-lg rounded-circle bg-{{color .User.ID}}-lt">{{initial .User.Name}}</span></span>
+          <div class="ms-3 text-secondary">Shown at the top of every week you share.</div>
+        </div>
+        <form method="post" action="/me" data-inplace data-toast="Name updated">
+          <input type="hidden" name="next" value="{{.Path}}">
+          <label class="form-label" for="profile-name">Your name</label>
+          <div class="input-group">
+            <input id="profile-name" type="text" name="name" class="form-control" value="{{.User.Name}}" required maxlength="40" autocomplete="name">
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+
+        <hr class="my-4">
+
+        <h6 class="mb-1"><i class="ti ti-key me-1"></i>Your private link</h6>
+        <p class="text-secondary small mb-2">This link <strong>is</strong> your timesheet. Bookmark it, and open it on another device to carry on there.</p>
+        <div class="input-group">
+          <input type="password" id="private-link" class="form-control key-link" readonly placeholder="••••••••••••••••••••••••" aria-label="Private link">
+          <button class="btn" type="button" id="toggle-link" title="Show or hide" aria-label="Show or hide the link"><i class="ti ti-eye"></i></button>
+          <button class="btn" type="button" id="copy-link"><i class="ti ti-copy me-1"></i>Copy</button>
+        </div>
+        <div class="form-hint mt-1">Keep it to yourself: anyone who has it can read and change your hours. To show someone a week, share that week instead.</div>
+        <div class="mt-2 small text-secondary">CLI: <code>weektime -t &lt;link&gt; week</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom tab bar for phones and tablets (the sidebar is a hamburger menu there) -->
+<nav class="mobile-tabs d-lg-none" aria-label="Main">
+  <a href="/"{{if and (eq .View "week") .IsThisWeek}} class="active" aria-current="page"{{end}}><i class="ti ti-calendar-week"></i><span>This week</span></a>
+  <a href="/shared"{{if eq .View "shared"}} class="active" aria-current="page"{{end}}>
+    <i class="ti ti-share"></i><span>Shared</span>
+    <span data-live="tab-shared-badge">{{if .ShareCount}}<em class="tab-badge">{{.ShareCount}}</em>{{end}}</span>
+  </a>
+  <a href="#profile-modal" data-bs-toggle="modal"><span class="avatar avatar-xs rounded-circle bg-{{color .User.ID}}-lt">{{initial .User.Name}}</span><span>You</span></a>
+</nav>
+
+<div id="toasts" aria-live="polite"></div>
+
+<script src="/static/vendor/tabler.min.js"></script>
+<script>
+(function () {
+  // ---- theme ----
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var root = document.documentElement;
+    var next = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-bs-theme', next);
+    try { localStorage.setItem('theme', next); } catch (e) {}
+  });
+
+  // ---- toasts ----
+  var box = document.getElementById('toasts');
+  function toast(message, action, ms) {
+    var el = document.createElement('div');
+    el.className = 'toast-item';
+    var text = document.createElement('span');
+    text.textContent = message;
+    el.appendChild(text);
+    if (action) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = action.label;
+      btn.addEventListener('click', function () { el.remove(); action.run(); });
+      el.appendChild(btn);
+    }
+    box.appendChild(el);
+    setTimeout(function () { el.remove(); }, ms || 6000);
+  }
+
+  // ---- live regions ----
+  // Any element with data-live="name" is refreshed in place when the server
+  // says something changed. Regions being edited are left alone.
+  var pending = false;
+
+  function isEditing(el) {
+    var a = document.activeElement;
+    // A field that is no longer on screen (an edit cancelled with Esc) is not
+    // being typed in, even if the cursor was left behind in it.
+    var shown = a && a.offsetParent !== null;
+    if (a && shown && el.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !a.readOnly) return true;
+    if (el.querySelector('.dropdown-menu.show')) return true;
+    return !!el.querySelector('.is-editing');
+  }
+
+  function apply(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    if (doc.title) document.title = doc.title;
+    document.querySelectorAll('[data-live]').forEach(function (cur) {
+      var fresh = doc.querySelector('[data-live="' + cur.getAttribute('data-live') + '"]');
+      if (!fresh || fresh.innerHTML === cur.innerHTML) return;
+      if (isEditing(cur)) { pending = true; return; }
+      cur.innerHTML = fresh.innerHTML;
+    });
+  }
+
+  function flushPending() {
+    if (pending) { pending = false; refresh(); }
+  }
+
+  // Fetch the current page again and swap in whatever changed.
+  var inflight = false, again = false;
+  function refresh() {
+    if (inflight) { again = true; return; }
+    inflight = true;
+    fetch(location.pathname + location.search, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+      .then(function (res) {
+        if (res.redirected && new URL(res.url).pathname === '/welcome') { location.href = res.url; return; }
+        if (res.ok) return res.text().then(apply);
+      })
+      .catch(function () {})
+      .then(function () { inflight = false; if (again) { again = false; refresh(); } });
+  }
+  var timer;
+  function scheduleRefresh() { clearTimeout(timer); timer = setTimeout(refresh, 120); }
+
+  // Server-sent events: the server says "something changed", we re-fetch.
+  // Your other tabs and devices, and the command line, all count.
+  if (window.EventSource) {
+    var es = new EventSource('/events'), opened = false;
+    es.addEventListener('changed', scheduleRefresh);
+    es.onopen = function () { if (opened) scheduleRefresh(); opened = true; }; // catch up after a reconnect
+  }
+
+  // ---- in-place form submits ----
+  // POST the form, follow the redirect back to this page, and swap the result in.
+  function post(url, params) {
+    return fetch(url, { method: 'POST', body: params, headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+      .then(function (res) {
+        if (res.redirected && new URL(res.url).pathname === '/welcome') { location.href = res.url; return null; }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var there = new URL(res.url);
+        // Somewhere else, such as the week an entry was moved to: go there.
+        if (there.pathname + there.search !== location.pathname + location.search) {
+          location.href = res.url;
+          return null;
+        }
+        // The same page with a dialog to open (#share after creating a link).
+        if (there.hash) setTimeout(function () { openFromHash(there.hash); }, 0);
+        return res.text();
+      });
+  }
+
+  function restore(entryID) {
+    post('/entries/' + entryID + '/restore', new URLSearchParams({ next: location.pathname + location.search }))
+      .then(function (html) { if (html !== null) apply(html); })
+      .catch(function () { toast('Could not restore the entry.'); });
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form.matches || !form.matches('[data-inplace]')) return;
+    e.preventDefault();
+    var params = new URLSearchParams(new FormData(form));
+    if (params.has('next')) params.set('next', location.pathname + location.search);
+    var undoID = null;
+    if (form.hasAttribute('data-undo')) undoID = new URL(form.action).pathname.split('/')[2];
+    var logged = form.id === 'add-entry-form' ? { end: form.end.value } : null;
+    post(form.action, params).then(function (html) {
+      if (html === null) return;
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      var scope = form.closest('.is-editing');
+      if (scope) scope.classList.remove('is-editing');
+      if (logged) {
+        // The next entry usually starts where this one ended, on the same day.
+        form.note.value = ''; form.end.value = ''; form.start.value = logged.end;
+        preview(form);
+        form.end.focus();
+      }
+      pending = false;
+      apply(html);
+      if (form.dataset.toast) toast(form.dataset.toast, null, 3000);
+      if (undoID) toast('Entry deleted', { label: 'Undo', run: function () { restore(undoID); } }, 8000);
+    }).catch(function () { toast('Something went wrong. Please try again.'); });
+  });
+
+  // ---- start and end: the button says how long, and the end must be later ----
+  function minutes(v) { var p = /^(\d\d):(\d\d)/.exec(v || ''); return p ? +p[1] * 60 + +p[2] : null; }
+  function duration(m) {
+    var h = Math.floor(m / 60), r = m % 60;
+    return h === 0 ? r + 'm' : r === 0 ? h + 'h' : h + 'h ' + r + 'm';
+  }
+  function preview(form) {
+    var a = minutes(form.start.value), b = minutes(form.end.value);
+    var ok = a === null || b === null || b > a;
+    form.end.setCustomValidity(ok ? '' : 'The end has to be after the start.');
+    var label = form.querySelector('[data-preview]');
+    if (label) label.textContent = a !== null && b !== null && b > a ? 'Log ' + duration(b - a) : 'Log time';
+  }
+  document.addEventListener('input', function (e) {
+    var form = e.target.form;
+    if (form && form.matches('[data-entry-form]') && (e.target.name === 'start' || e.target.name === 'end')) preview(form);
+  });
+
+  // ---- clicks ----
+  function copy(text, btn) {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).catch(function () {
+      var t = document.createElement('textarea');
+      t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+    }).then(function () { btn.innerHTML = '<i class="ti ti-check me-1"></i>Copied'; });
+  }
+
+  document.addEventListener('click', function (e) {
+    var toggle = e.target.closest('[data-edit-toggle]');
+    if (toggle) {
+      var scope = toggle.closest('[data-edit-scope]');
+      scope.classList.toggle('is-editing');
+      if (scope.classList.contains('is-editing')) {
+        var input = scope.querySelector('[data-edit-form] input[name=start]');
+        if (input) input.focus();
+      } else {
+        stopEditing(scope);
+      }
+      return;
+    }
+    // The + on a day's heading logs time on that day.
+    var day = e.target.closest('[data-log-day]');
+    if (day) {
+      var add = document.getElementById('add-entry-form');
+      add.date.value = day.getAttribute('data-log-day');
+      add.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      add.start.focus();
+      return;
+    }
+    var copyBtn = e.target.closest('[data-copy]');
+    if (copyBtn) { copy(copyBtn.getAttribute('data-copy'), copyBtn); return; }
+    var eye = e.target.closest('#toggle-link');
+    if (eye) {
+      loadLink().then(function () { linkInput.type = linkInput.type === 'password' ? 'text' : 'password'; });
+      return;
+    }
+    var copyLink = e.target.closest('#copy-link');
+    if (copyLink) {
+      loadLink().then(function () {
+        copy(linkInput.value, copyLink);
+        // Having it on the clipboard counts as having it, so stop nagging.
+        return post('/me/link/saved', new URLSearchParams({ next: location.pathname + location.search }));
+      }).then(function (html) { if (html) apply(html); });
+    }
+  });
+
+  // stopEditing puts the cursor back on the pencil rather than in a form that
+  // is no longer on screen, and lets through live updates held back meanwhile.
+  function stopEditing(scope) {
+    scope.classList.remove('is-editing');
+    var back = scope.querySelector('[data-edit-view] [data-edit-toggle]');
+    if (back && back.offsetParent !== null) back.focus();
+    else if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flushPending();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var scope = e.target.closest && e.target.closest('.is-editing');
+    if (scope) stopEditing(scope);
+  });
+
+  // ---- profile dialog: the link is fetched only when asked for, and forgotten on close ----
+  var linkInput = document.getElementById('private-link');
+  var linkLoaded = false;
+  function loadLink() {
+    if (linkLoaded) return Promise.resolve();
+    return fetch('/me/link', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (data) { linkInput.value = data.link; linkLoaded = true; });
+  }
+  document.getElementById('profile-modal').addEventListener('hidden.bs.modal', function () {
+    linkInput.value = ''; linkInput.type = 'password'; linkLoaded = false;
+    document.getElementById('copy-link').innerHTML = '<i class="ti ti-copy me-1"></i>Copy';
+  });
+
+  // Open a dialog when the URL asks for one (#share after creating a link, #profile from old /me links).
+  function openFromHash(hash) {
+    var wanted = { '#share': '[data-bs-target="#share-modal"]', '#profile': '#profile-open' }[hash];
+    if (!wanted) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    var modal = document.getElementById(hash.slice(1) + '-modal');
+    var opener = document.querySelector(wanted);
+    if (opener && !(modal && modal.classList.contains('show'))) opener.click();
+  }
+  openFromHash(location.hash);
+})();
+</script>
+</body>
+</html>

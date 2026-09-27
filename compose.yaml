@@ -1,0 +1,13 @@
+services:
+  weektime:
+    # Use the published image, or swap for `build: .` to build from this checkout.
+    image: ghcr.io/redclif-unknow/weektime:latest
+    container_name: weektime
+    ports:
+      - "8080:8080"
+    volumes:
+      - weektime-data:/data
+    restart: unless-stopped
+
+volumes:
+  weektime-data:

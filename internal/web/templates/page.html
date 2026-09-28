@@ -406,12 +406,12 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var there = new URL(res.url);
         // Somewhere else, such as the week an entry was moved to: go there.
+        // (A redirect's #fragment never reaches res.url, so #share only opens
+        // the dialog on a full page load; here it is open already.)
         if (there.pathname + there.search !== location.pathname + location.search) {
           location.href = res.url;
           return null;
         }
-        // The same page with a dialog to open (#share after creating a link).
-        if (there.hash) setTimeout(function () { openFromHash(there.hash); }, 0);
         return res.text();
       });
   }
@@ -425,6 +425,10 @@
   document.addEventListener('submit', function (e) {
     var form = e.target;
     if (!form.matches || !form.matches('[data-inplace]')) return;
+    // A form's own onsubmit has said no, as "Turn this link off?" does when
+    // Cancel is pressed. It runs before this and cancels the submit, which
+    // must stop it here too, not only the browser's own submission.
+    if (e.defaultPrevented) return;
     e.preventDefault();
     var params = new URLSearchParams(new FormData(form));
     if (params.has('next')) params.set('next', location.pathname + location.search);

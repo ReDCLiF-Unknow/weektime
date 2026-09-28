@@ -169,11 +169,29 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.purgeTrash(); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// migrate upgrades databases created by earlier versions.
+func (s *Store) migrate() error {
+	// A week has one live link at most, which the database now enforces.
+	// Two requests at once could make a second one before, so a database
+	// from then may have spares: keep each week's oldest, which is the one
+	// the page showed and the owner will have sent, and revoke the rest.
+	if _, err := s.db.Exec(`UPDATE shares SET revoked = 1 WHERE revoked = 0 AND id NOT IN
+		(SELECT MIN(id) FROM shares WHERE revoked = 0 GROUP BY user_id, year, week)`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS shares_one_live ON shares(user_id, year, week) WHERE revoked = 0`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -288,20 +306,31 @@ func cleanNote(note string) (string, error) {
 	return note, nil
 }
 
+// cleanDate validates a YYYY-MM-DD date. It must fall in a week that can
+// be written down and shown (see Week.valid), or the entry would be saved
+// on a page nobody can open.
+func cleanDate(date string) (string, error) {
+	date = strings.TrimSpace(date)
+	d, err := time.Parse(dateLayout, date)
+	if err != nil || !WeekOf(d).valid() {
+		return "", ErrInvalid
+	}
+	return date, nil
+}
+
 // cleanEntry validates an entry's fields. An entry stays inside one day and
 // ends after it starts; work that runs past midnight is two entries.
 func cleanEntry(date, start, end, note string) (string, int, int, string, error) {
-	date = strings.TrimSpace(date)
-	if _, err := time.Parse(dateLayout, date); err != nil {
-		return "", 0, 0, "", ErrInvalid
+	date, err := cleanDate(date)
+	if err != nil {
+		return "", 0, 0, "", err
 	}
 	from, ok1 := parseClock(start)
 	to, ok2 := parseClock(end)
 	if !ok1 || !ok2 || to <= from {
 		return "", 0, 0, "", ErrInvalid
 	}
-	note, err := cleanNote(note)
-	if err != nil {
+	if note, err = cleanNote(note); err != nil {
 		return "", 0, 0, "", err
 	}
 	return date, from, to, note, nil
@@ -349,22 +378,50 @@ func (s *Store) Entry(id, userID int64) (Entry, error) {
 
 // UpdateEntry changes the fields that are set in u. The result must still be
 // a valid entry: an edit that would make it end before it starts is refused.
+//
+// It is one statement, so two edits at once to different fields (the CLI
+// and a browser, say) both land: each field not being changed is left as
+// the database has it, not as it was when somebody last looked.
 func (s *Store) UpdateEntry(id, userID int64, u EntryUpdate) (Entry, error) {
-	e, err := s.Entry(id, userID)
-	if err != nil {
-		return e, err
+	var date, from, to, note any // nil leaves the column as it is
+	if u.Date != nil {
+		d, err := cleanDate(*u.Date)
+		if err != nil {
+			return Entry{}, err
+		}
+		date = d
 	}
-	for _, f := range []struct{ to, from *string }{{&e.Date, u.Date}, {&e.Start, u.Start}, {&e.End, u.End}, {&e.Note, u.Note}} {
-		if f.from != nil {
-			*f.to = *f.from
+	for _, f := range []struct {
+		in  *string
+		out *any
+	}{{u.Start, &from}, {u.End, &to}} {
+		if f.in != nil {
+			m, ok := parseClock(*f.in)
+			if !ok {
+				return Entry{}, ErrInvalid
+			}
+			*f.out = m
 		}
 	}
-	date, from, to, note, err := cleanEntry(e.Date, e.Start, e.End, e.Note)
-	if err != nil {
-		return Entry{}, err
+	if u.Note != nil {
+		n, err := cleanNote(*u.Note)
+		if err != nil {
+			return Entry{}, err
+		}
+		note = n
 	}
-	if err := affected(s.db.Exec(`UPDATE entries SET date = ?, start_min = ?, end_min = ?, note = ?
-		WHERE id = ? AND user_id = ? AND deleted_at IS NULL`, date, from, to, note, id, userID)); err != nil {
+	err := affected(s.db.Exec(`UPDATE entries SET date = COALESCE(?, date), start_min = COALESCE(?, start_min),
+		end_min = COALESCE(?, end_min), note = COALESCE(?, note)
+		WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND COALESCE(?, end_min) > COALESCE(?, start_min)`,
+		date, from, to, note, id, userID, to, from))
+	if errors.Is(err, ErrNotFound) {
+		// Nothing changed: either there is no such entry, or the edit would
+		// have left it ending before it starts.
+		if _, err := s.Entry(id, userID); err != nil {
+			return Entry{}, err
+		}
+		return Entry{}, ErrInvalid
+	} else if err != nil {
 		return Entry{}, err
 	}
 	s.changed(userID)
@@ -442,6 +499,11 @@ func (s *Store) Timesheet(userID int64, w Week) (Timesheet, error) {
 
 // RecentWeeks is how much userID logged in each of their latest weeks with
 // anything in them, newest first, at most limit of them.
+//
+// Every page asks for this, so it must not cost more as the years go by. It
+// does not: the entries_user_date index hands SQLite the days newest first,
+// already grouped, so it streams them, and the loop stops reading as soon as
+// it has limit weeks.
 func (s *Store) RecentWeeks(userID int64, limit int) ([]WeekTotal, error) {
 	rows, err := s.db.Query(`SELECT date, SUM(end_min - start_min) FROM entries
 		WHERE user_id = ? AND deleted_at IS NULL GROUP BY date ORDER BY date DESC`, userID)
@@ -489,16 +551,14 @@ func scanShare(row interface{ Scan(...any) error }) (Share, error) {
 // there is none. Asking twice gives the same link, so sending it again does
 // not leave several in circulation.
 func (s *Store) ShareWeek(userID int64, w Week) (Share, error) {
-	if sh, err := s.WeekShare(userID, w); !errors.Is(err, ErrNotFound) {
-		return sh, err
-	}
-	res, err := s.db.Exec(`INSERT INTO shares (user_id, year, week, token) VALUES (?, ?, ?, ?)`,
-		userID, w.Year, w.Num, newShareToken())
-	if err != nil {
+	// Two requests at once (a double click) must not make two links, so
+	// rather than look first and insert after, insert unless the week has a
+	// live link already, and then read back whichever one it has.
+	if _, err := s.db.Exec(`INSERT INTO shares (user_id, year, week, token) VALUES (?, ?, ?, ?)
+		ON CONFLICT DO NOTHING`, userID, w.Year, w.Num, newShareToken()); err != nil {
 		return Share{}, err
 	}
-	id, _ := res.LastInsertId()
-	return scanShare(s.db.QueryRow(shareSelect+`WHERE id = ?`, id))
+	return s.WeekShare(userID, w)
 }
 
 // WeekShare is the link userID has out for week w, if there is one.

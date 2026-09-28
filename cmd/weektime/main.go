@@ -260,7 +260,10 @@ func printSheet(cmd *cobra.Command, sheet store.Timesheet) error {
 			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n", e.ID, date, e.Start, e.End, e.Duration(), e.Note)
 		}
 	}
-	fmt.Fprintln(w)
+	// A gap before the totals. An empty line would end tabwriter's columns,
+	// so the totals would line up only with each other; a row of empty cells
+	// keeps them under DATE and DURATION.
+	fmt.Fprintln(w, "\t\t\t\t\t")
 	for _, d := range sheet.Days {
 		if d.Minutes > 0 {
 			fmt.Fprintf(w, "\t%s\t\t\t%s\t\n", day(d.Date), store.Duration(d.Minutes))

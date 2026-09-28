@@ -491,6 +491,7 @@ func (e *env) listen(path, token string) <-chan string {
 	events := make(chan string, 10)
 	ready := make(chan struct{})
 	go func() {
+		defer close(events) // the stream has ended
 		defer resp.Body.Close()
 		sc := bufio.NewScanner(resp.Body)
 		for sc.Scan() {
@@ -537,5 +538,109 @@ func TestChangesReachOpenPagesAndSharedViewers(t *testing.T) {
 	case <-other:
 		t.Error("Sam was told about Alex's timesheet")
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// Opening a link is a GET, which any site can make a browser do, so a link
+// to someone else's timesheet must not quietly sign out whoever is here.
+func TestAnotherTimesheetsLinkAsksBeforeSwitching(t *testing.T) {
+	e := newEnv(t)
+	alex := e.register("Alex")
+	sam := e.register("Sam")
+
+	req, _ := http.NewRequest("GET", e.srv.URL+"/u/"+sam, nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: alex})
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	want(t, "Sam's link in Alex's browser", resp.StatusCode, 200)
+	if got := cookieFrom(resp); got != "" {
+		t.Error("opening Sam's link signed Alex's browser in as somebody without asking")
+	}
+	for _, s := range []string{"Switch timesheets?", "Switch to Sam", "Stay with Alex", "never been saved"} {
+		if !strings.Contains(string(b), s) {
+			t.Errorf("the page asking to switch does not say %q", s)
+		}
+	}
+	if code, _ := e.page(alex, "/api/me"); code != 200 {
+		t.Errorf("Alex is no longer signed in: %d", code)
+	}
+
+	// Going ahead is a POST, which only this site's own form can send.
+	req, _ = http.NewRequest("POST", e.srv.URL+"/u/"+sam, nil)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: alex})
+	resp, _ = noRedirect.Do(req)
+	resp.Body.Close()
+	want(t, "switching from another site", resp.StatusCode, 403)
+
+	resp = e.form(alex, "/u/"+sam, nil)
+	if resp.StatusCode != http.StatusSeeOther || cookieFrom(resp) != sam {
+		t.Errorf("switching here: status %d, cookie %q", resp.StatusCode, cookieFrom(resp))
+	}
+	want(t, "switching to a link that is nobody's", e.form(alex, "/u/nope", nil).StatusCode, 404)
+
+	// Your own link, signed in or not, goes straight through.
+	if code, _ := e.page(alex, "/u/"+alex); code != 200 {
+		t.Errorf("Alex opening Alex's own link: %d", code)
+	}
+}
+
+// Revoking a link stops it for anyone still watching: their stream gets one
+// last signal, so the page finds out, and then ends. Before, it went on
+// telling them whenever the owner did anything, for as long as it was open.
+func TestARevokedLinksStreamEnds(t *testing.T) {
+	e := newEnv(t)
+	alex := e.register("Alex")
+	var sh struct {
+		ID    int64
+		Token string
+	}
+	e.call("POST", "/api/weeks/current/share", alex, "", &sh)
+	viewer := e.listen("/s/"+sh.Token+"/events", "")
+
+	want(t, "revoking", e.call("DELETE", "/api/shares/"+itoa(sh.ID), alex, "", nil), 204)
+	expectEvent(t, "the revoked link's viewer", viewer)
+	select {
+	case _, open := <-viewer:
+		if open {
+			t.Error("the stream went on after its last signal")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the stream of a revoked link stayed open")
+	}
+}
+
+// A shared week's viewers are counted per link. Behind a proxy they all have
+// the proxy's address, and counting per address gave them one cap between
+// them, so the seventeenth stopped getting updates.
+func TestManyViewersOfOneLinkAllGetUpdates(t *testing.T) {
+	e := newEnv(t)
+	alex := e.register("Alex")
+	var sh struct{ Token string }
+	e.call("POST", "/api/weeks/current/share", alex, "", &sh)
+	var streams []<-chan string
+	for i := 0; i < maxStreams+4; i++ {
+		streams = append(streams, e.listen("/s/"+sh.Token+"/events", "")) // fails the test on a 429
+	}
+	e.log(alex, "2026-09-23", "09:00", "10:00", "")
+	expectEvent(t, "the last viewer to arrive", streams[len(streams)-1])
+}
+
+func TestTheViewerCapIsStillACap(t *testing.T) {
+	h := newHub()
+	for i := 0; i < 3; i++ {
+		if h.subscribe(1, "share:x", 3) == nil {
+			t.Fatalf("stream %d was refused under the cap", i+1)
+		}
+	}
+	if h.subscribe(1, "share:x", 3) != nil {
+		t.Error("a stream over the cap was let in")
+	}
+	if h.subscribe(1, "share:y", 3) == nil {
+		t.Error("another link's viewers were counted against this one")
 	}
 }

@@ -153,3 +153,33 @@ func TestTheTokenCanBeTheLinkOrJustTheToken(t *testing.T) {
 		t.Errorf("without a token: %v", err)
 	}
 }
+
+// The totals under a week sit in the table's own columns: the day under
+// DATE, the time under DURATION.
+func TestWeekTotalsLineUpWithTheTable(t *testing.T) {
+	c := newCLI(t)
+	c.signIn("Alex")
+	for i := 0; i < 12; i++ { // two-digit IDs widen the first column
+		c.run("log", "09:00", "10:00", "-d", "2026-10-13")
+	}
+	c.run("log", "10:00", "10:45", "a longer note than the others", "-d", "2026-10-15")
+	out := c.run("week", "2026-W42")
+	var header, week string
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "ID"):
+			header = line
+		case strings.Contains(line, "WEEK"):
+			week = line
+		}
+	}
+	if header == "" || week == "" {
+		t.Fatalf("no header or week total in:\n%s", out)
+	}
+	if at, want := strings.Index(week, "WEEK"), strings.Index(header, "DATE"); at != want {
+		t.Errorf("WEEK is at column %d, DATE at %d:\n%s", at, want, out)
+	}
+	if at, want := strings.Index(week, "12h 45m"), strings.Index(header, "DURATION"); at != want {
+		t.Errorf("the week's total is at column %d, DURATION at %d:\n%s", at, want, out)
+	}
+}

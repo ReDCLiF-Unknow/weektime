@@ -36,16 +36,23 @@ func WeekOf(t time.Time) Week {
 // ParseWeek reads a week written the ISO way, "2026-W39". The W may be lower
 // case and the number may drop its leading zero.
 func ParseWeek(s string) (Week, error) {
-	y, w, ok := strings.Cut(strings.ToUpper(strings.TrimSpace(s)), "-W")
+	y, n, ok := strings.Cut(strings.ToUpper(strings.TrimSpace(s)), "-W")
 	if !ok {
 		return Week{}, ErrInvalid
 	}
 	year, err1 := strconv.Atoi(y)
-	num, err2 := strconv.Atoi(w)
-	if err1 != nil || err2 != nil || year < 1000 || year > 9999 || num < 1 || num > weeksIn(year) {
+	num, err2 := strconv.Atoi(n)
+	w := Week{year, num}
+	if err1 != nil || err2 != nil || !w.valid() {
 		return Week{}, ErrInvalid
 	}
-	return Week{year, num}, nil
+	return w, nil
+}
+
+// valid reports whether a week exists and has a four-digit year, which is
+// what every week a page or a link can name has.
+func (w Week) valid() bool {
+	return w.Year >= 1000 && w.Year <= 9999 && w.Num >= 1 && w.Num <= weeksIn(w.Year)
 }
 
 // weeksIn is 52 or 53: 28 December is always in a year's last week.

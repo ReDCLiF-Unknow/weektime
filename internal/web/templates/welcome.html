@@ -20,7 +20,22 @@
         <p class="text-secondary text-center mb-4">{{.Subtitle}}</p>
         {{if .Error}}<div class="alert alert-danger" role="alert">{{.Error}}</div>{{end}}
 
-        {{if .Link}}
+        {{if .Switch}}{{with .Switch}}
+        <!-- A link to somebody else's timesheet, opened in a browser signed in
+             to another. Nothing changes unless this is pressed, so a link on
+             another site cannot sign anyone out. -->
+        {{if .Unsaved}}
+        <div class="alert alert-warning" role="alert">
+          <strong>{{.From}}'s private link has never been saved.</strong> Switching signs this browser out of it,
+          and without the link there is no way back in. Save it from your profile first.
+        </div>
+        {{end}}
+        <form method="post" action="{{.Action}}">
+          <button type="submit" class="btn btn-primary w-100"><i class="ti ti-key me-1"></i>Switch to {{.To}}'s timesheet</button>
+        </form>
+        <a href="/" class="btn w-100 mt-2">Stay with {{.From}}'s timesheet</a>
+        {{end}}
+        {{else if .Link}}
         <!-- Handing over the private link. This page is at that link, so
              bookmarking the page is bookmarking the link. -->
         <label class="form-label" for="link">Your private link</label>
@@ -56,7 +71,7 @@
       </div>
     </div>
 
-    {{if not .Link}}
+    {{if not (or .Link .Switch)}}
     <details class="text-center text-secondary mt-3">
       <summary class="small" style="cursor:pointer">Already have a private link?</summary>
       <p class="small mt-2 mb-2">Open it, or paste it here.</p>

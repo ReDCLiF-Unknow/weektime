@@ -105,6 +105,9 @@ hash of the token is stored, so it cannot be read back out of the database.
   the same.
 - Until you say you have it somewhere safe, every page reminds you, because losing it means losing the
   timesheet: there is no password to reset and no email to send. Copying it from **Your profile** counts.
+- Opening somebody else's link in a browser that is signed in already asks before switching, and says
+  so plainly if the timesheet signed in now has never had its link saved. A link is something any
+  website can send your browser to, so it must not be able to sign you out of your own timesheet.
 - Every page is sent with `Referrer-Policy: no-referrer`, so the link in your address bar is never passed
   on to a site you follow a link to.
 

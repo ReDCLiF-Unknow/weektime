@@ -24,7 +24,7 @@ type hub struct {
 
 type subscriber struct {
 	owner int64         // whose timesheet this stream is about
-	who   string        // who is watching, for the per-viewer cap
+	who   string        // who is watching, for the cap
 	ch    chan struct{} // buffered(1): bursts of changes coalesce into one signal
 }
 
@@ -35,6 +35,11 @@ type subscriber struct {
 // by itself until another tab is closed.
 const maxStreams = 16
 
+// maxViewers is the same for one shared link, whose viewers are nobody in
+// particular and so are counted together. It is enough for everyone a week
+// is likely to be sent to, with several tabs each, and still a limit.
+const maxViewers = 200
+
 func newHub() *hub { return &hub{subs: map[*subscriber]struct{}{}, closing: make(chan struct{})} }
 
 // close ends every open stream. Streams never finish by themselves, so a
@@ -42,8 +47,8 @@ func newHub() *hub { return &hub{subs: map[*subscriber]struct{}{}, closing: make
 func (h *hub) close() { h.closeOnce.Do(func() { close(h.closing) }) }
 
 // subscribe registers a stream watching owner's timesheet on behalf of who,
-// or returns nil if who already has maxStreams open.
-func (h *hub) subscribe(owner int64, who string) *subscriber {
+// or returns nil if who already has limit open.
+func (h *hub) subscribe(owner int64, who string, limit int) *subscriber {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	open := 0
@@ -52,7 +57,7 @@ func (h *hub) subscribe(owner int64, who string) *subscriber {
 			open++
 		}
 	}
-	if open >= maxStreams {
+	if open >= limit {
 		return nil
 	}
 	s := &subscriber{owner: owner, who: who, ch: make(chan struct{}, 1)}
@@ -81,14 +86,17 @@ func (h *hub) publish(owner int64) {
 }
 
 // stream sends change signals for owner's timesheet to one browser as
-// server-sent events.
-func (s *Server) stream(w http.ResponseWriter, r *http.Request, owner int64, who string) {
+// server-sent events, at most limit at once for who. When still is set, it
+// is asked on every signal whether the browser may go on watching; once it
+// says no, that signal is the last, so the page fetches itself, finds out
+// why, and the stream ends.
+func (s *Server) stream(w http.ResponseWriter, r *http.Request, owner int64, who string, limit int, still func() bool) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	sub := s.hub.subscribe(owner, who)
+	sub := s.hub.subscribe(owner, who, limit)
 	if sub == nil {
 		// A browser's EventSource gives up for good on an error status rather
 		// than retrying, so this does not turn into a reconnect storm.
@@ -115,6 +123,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, owner int64, who
 			return
 		case <-sub.ch:
 			fmt.Fprint(w, "event: changed\ndata: {}\n\n")
+			if still != nil && !still() {
+				fl.Flush()
+				return
+			}
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 		}

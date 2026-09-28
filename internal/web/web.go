@@ -236,6 +236,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /welcome", s.limited(s.welcomePost, s.tooManySignups))
 	s.mux.HandleFunc("POST /welcome/link", s.welcomeLink)
 	s.mux.HandleFunc("GET /u/{token}", s.privateLink)
+	s.mux.HandleFunc("POST /u/{token}", s.switchTo)
 	s.mux.HandleFunc("GET /me", s.authed(s.meGet))
 	s.mux.HandleFunc("GET /me/link", s.authed(s.meLink))
 	s.mux.HandleFunc("POST /me/link/saved", s.authed(s.meLinkSaved))
@@ -369,6 +370,17 @@ type simplePage struct {
 	Title, Heading, Subtitle, Next, Error string
 	// Link is set on the page that hands someone their private link.
 	Link string
+	// Switch is set on the page that asks whether to change timesheets.
+	Switch *switchAsk
+}
+
+// switchAsk is what the page asking to change timesheets needs to say.
+type switchAsk struct {
+	From, To string // the names signed in now, and on the link
+	Action   string // where to post to go ahead
+	// Unsaved is set when the timesheet signed in now has never had its
+	// link saved, so switching away may lose it for good.
+	Unsaved bool
 }
 
 func (s *Server) renderTmpl(w http.ResponseWriter, status int, name string, data any) {
@@ -448,8 +460,28 @@ func (s *Server) privateLink(w http.ResponseWriter, r *http.Request) {
 			welcomePage("", "That link isn't anyone's timesheet. Check it was copied whole, or start a new one."))
 		return
 	}
-	setSession(w, r, token)
 	next := safeNext(r.URL.Query().Get("next"))
+	// Opening a link is a GET, which any website can make a browser do. If
+	// that quietly swapped whoever is signed in here for whoever the link
+	// belongs to, a page elsewhere could log you out of your own timesheet,
+	// which without its link saved is gone for good, and have you log your
+	// hours into one somebody else can read. So a link to a different
+	// timesheet asks first, and only a click on this site goes ahead.
+	if cur := userFrom(r); cur != nil && cur.ID != u.ID {
+		action := "/u/" + token
+		if next != "/" {
+			action += "?next=" + url.QueryEscape(next)
+		}
+		s.renderTmpl(w, http.StatusOK, "welcome.html", simplePage{
+			Title:    "Switch timesheets?",
+			Heading:  "Switch timesheets?",
+			Subtitle: "This browser is signed in to " + cur.Name + "'s timesheet. The link you opened is " + u.Name + "'s.",
+			Next:     "/",
+			Switch:   &switchAsk{From: cur.Name, To: u.Name, Action: action, Unsaved: !cur.LinkSaved},
+		})
+		return
+	}
+	setSession(w, r, token)
 	if u.LinkSaved {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
@@ -461,6 +493,22 @@ func (s *Server) privateLink(w http.ResponseWriter, r *http.Request) {
 		Next:     next,
 		Link:     privateLink(r, token),
 	})
+}
+
+// switchTo signs this browser in with a private link, having asked first
+// (see privateLink). It is a POST, so only a form on this site can make it.
+func (s *Server) switchTo(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	if _, err := s.store.UserByToken(token); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	setSession(w, r, token)
+	dest := "/u/" + token
+	if next := safeNext(r.URL.Query().Get("next")); next != "/" {
+		dest += "?next=" + url.QueryEscape(next)
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 // meGet is where old links to a profile page go: it is a dialog on every page.
@@ -619,7 +667,7 @@ func (s *Server) pageShared(w http.ResponseWriter, r *http.Request, u *store.Use
 }
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request, u *store.User) {
-	s.stream(w, r, u.ID, "user:"+strconv.FormatInt(u.ID, 10))
+	s.stream(w, r, u.ID, "user:"+strconv.FormatInt(u.ID, 10), maxStreams, nil)
 }
 
 // weekOfDate is the week page an entry on date belongs on.
@@ -767,12 +815,20 @@ func (s *Server) pageSharedWeek(w http.ResponseWriter, r *http.Request) {
 // sharedEvents tells a shared week's viewers when its owner changes something,
 // including revoking the link, which the page then finds out by reloading.
 func (s *Server) sharedEvents(w http.ResponseWriter, r *http.Request) {
-	sh, owner, err := s.store.SharedWeek(r.PathValue("token"))
+	token := r.PathValue("token")
+	_, owner, err := s.store.SharedWeek(token)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	s.stream(w, r, owner, "share:"+clientIP(r)+":"+sh.Token)
+	// Viewers are counted per link, not per address: behind a proxy every
+	// viewer has the proxy's address, and they would share one small cap.
+	// While the link lives the owner's changes reach it; once it is revoked,
+	// the next signal is its last.
+	s.stream(w, r, owner, "share:"+token, maxViewers, func() bool {
+		_, _, err := s.store.SharedWeek(token)
+		return err == nil
+	})
 }
 
 // ---- JSON API ---------------------------------------------------------

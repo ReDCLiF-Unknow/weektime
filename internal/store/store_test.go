@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -273,5 +274,120 @@ func TestRecentWeeks(t *testing.T) {
 	}
 	if len(weeks) != 2 || weeks[0].Week.String() != "2026-W39" || weeks[1].Week.String() != "2026-W38" || weeks[1].Minutes != 120 {
 		t.Errorf("got %+v", weeks)
+	}
+}
+
+func TestSharingAWeekTwiceAtOnceMakesOneLink(t *testing.T) {
+	s := open(t)
+	alex := user(t, s, "Alex")
+	w := mustWeek(t, "2026-W42")
+	tokens := make(chan string, 20)
+	var wg sync.WaitGroup
+	for i := 0; i < cap(tokens); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sh, err := s.ShareWeek(alex.ID, w)
+			if err != nil {
+				t.Error(err)
+			}
+			tokens <- sh.Token
+		}()
+	}
+	wg.Wait()
+	close(tokens)
+	first := ""
+	for tok := range tokens {
+		if first == "" {
+			first = tok
+		}
+		if tok != first {
+			t.Fatalf("sharing at once handed out two links: %q and %q", first, tok)
+		}
+	}
+	if shares, _ := s.Shares(alex.ID); len(shares) != 1 {
+		t.Errorf("%d live links for one week", len(shares))
+	}
+}
+
+// A database from 1.0.1 or earlier may have two live links for a week, made
+// by requests that crossed. Opening it keeps the oldest, which is the one the
+// page showed, and turns the others off.
+func TestSpareLinksFromBeforeAreRevokedOnOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alex := user(t, s, "Alex")
+	s.db.Exec(`DROP INDEX shares_one_live`)
+	for _, tok := range []string{"first", "second", "third"} {
+		if _, err := s.db.Exec(`INSERT INTO shares (user_id, year, week, token) VALUES (?, 2026, 42, ?)`, alex.ID, tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatalf("a database with spare links would not open: %v", err)
+	}
+	defer s.Close()
+	shares, _ := s.Shares(alex.ID)
+	if len(shares) != 1 || shares[0].Token != "first" {
+		t.Errorf("after opening: %+v", shares)
+	}
+}
+
+// Edits to different fields at the same time, from the CLI and a browser
+// say, must both land rather than one putting back what the other changed.
+func TestEditsAtOnceToDifferentFieldsBothLand(t *testing.T) {
+	s := open(t)
+	alex := user(t, s, "Alex")
+	for round := 0; round < 20; round++ {
+		e, _ := s.AddEntry(alex.ID, "2026-10-14", "09:00", "10:00", "before")
+		note, end := "after", "12:00"
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); s.UpdateEntry(e.ID, alex.ID, EntryUpdate{Note: &note}) }()
+		go func() { defer wg.Done(); s.UpdateEntry(e.ID, alex.ID, EntryUpdate{End: &end}) }()
+		wg.Wait()
+		if got, _ := s.Entry(e.ID, alex.ID); got.Note != "after" || got.End != "12:00" {
+			t.Fatalf("round %d: one edit was lost: %+v", round, got)
+		}
+	}
+}
+
+func TestEditingAnEntryThatIsNotThere(t *testing.T) {
+	s := open(t)
+	alex := user(t, s, "Alex")
+	note := "x"
+	if _, err := s.UpdateEntry(999, alex.ID, EntryUpdate{Note: &note}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("editing an entry that does not exist: %v", err)
+	}
+	bad := "25:00"
+	e, _ := s.AddEntry(alex.ID, "2026-10-14", "09:00", "10:00", "")
+	if _, err := s.UpdateEntry(e.ID, alex.ID, EntryUpdate{Start: &bad}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a start of 25:00: %v", err)
+	}
+}
+
+// An entry is only worth saving on a week a page can show. A mistyped year
+// used to be accepted and then be on no page at all.
+func TestDatesOutsideShowableWeeksAreRefused(t *testing.T) {
+	s := open(t)
+	alex := user(t, s, "Alex")
+	for _, d := range []string{"0202-09-28", "0999-05-01"} {
+		if _, err := s.AddEntry(alex.ID, d, "09:00", "10:00", ""); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: got %v, want ErrInvalid", d, err)
+		}
+	}
+	e, err := s.AddEntry(alex.ID, "1000-06-01", "09:00", "10:00", "")
+	if err != nil {
+		t.Fatalf("a date in a week that can be shown: %v", err)
+	}
+	old := "0202-01-01"
+	if _, err := s.UpdateEntry(e.ID, alex.ID, EntryUpdate{Date: &old}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("moving it to 0202: %v", err)
 	}
 }

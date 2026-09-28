@@ -14,6 +14,11 @@ link off whenever you like.
 One binary serves everything, including its own CSS, JavaScript and fonts, so a page load reaches nothing
 but your own server: no CDN learns who is using it, and it works on a network with no way out.
 
+The shared week is live. Alex logs time on a laptop, and the client Alex sent the link to sees each entry
+and the totals arrive on their phone at once; when Alex turns the link off, it stops working that moment:
+
+<img alt="Two screens side by side. Alex, on a laptop, logs two entries and each appears at once on the shared week open on Sam's phone, with the day's and the week's totals; then Alex revokes the link and Sam's page says it no longer shows anything" src="docs/live.gif">
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/week-dark.png">
   <img alt="A week in Weektime: totals, a bar for each day, a form to log time, and the week's entries under a heading for each day" src="docs/week-light.png">
@@ -200,6 +205,12 @@ python tools/screenshots/shoot.py
 It starts a server on a spare port, fills it with a week of work, photographs it with headless
 Chrome and writes the PNGs into `docs/`, cleaning up after itself. It needs Go, Chrome and
 `python -m pip install websockets`.
+
+The animation at the top is `python tools/screenshots/livegif.py`, which also needs
+`python -m pip install pillow`. It drives two Chromes, one for Alex and one for the client, who is
+signed in as nobody, and writes `docs/live.gif`. It is a storyboard, not a screen recording: each
+frame is taken once the page shows what it is meant to, so the result is the same on any machine.
+What reaches the client's screen still gets there through the app's own live updates.
 
 ## Not yet
 

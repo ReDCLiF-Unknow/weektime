@@ -19,7 +19,8 @@
           </div>
           <div class="col" style="min-width:0">
             <div class="page-pretitle">Timesheet · Week {{.Sheet.Week.Num}}, {{.Sheet.Week.Year}}</div>
-            <h2 class="page-title text-truncate">{{.Sheet.Name}}, {{weekRange .Sheet.Week}}</h2>
+            <h2 class="page-title text-truncate">{{.Sheet.Name}}</h2>
+            <div class="text-secondary fw-medium">{{weekRange .Sheet.Week}}</div>
           </div>
           <div class="col-12 col-sm-auto d-flex align-items-center gap-2">
             <span class="badge bg-secondary-lt"><i class="ti ti-lock me-1"></i>Read-only</span>
@@ -44,7 +45,38 @@
         <div data-live="stats">{{template "weekstats" .}}</div>
 
         <div class="card" data-live="sheet">
-          <div class="table-responsive">
+          <!-- On a phone five columns leave the note a letter wide, so there
+               the week is a list instead: a heading a day, then each entry's
+               times and duration over its note. -->
+          <div class="d-sm-none">
+            {{range .Sheet.Days}}{{if .Entries}}
+            <div class="day-head pe-3">
+              <span class="day-name">{{dayName .Date}}</span>
+              <span class="text-secondary">{{dayDate .Date}}</span>
+              <span class="day-total">{{duration .Minutes}}</span>
+            </div>
+            <div class="list-group list-group-flush">
+              {{range .Entries}}
+              <div class="list-group-item">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="entry-time">{{.Start}} – {{.End}}</span>
+                  <span class="badge bg-blue-lt text-blue entry-duration ms-auto">{{.Duration}}</span>
+                </div>
+                {{if .Note}}<div class="entry-note mt-1">{{.Note}}</div>{{end}}
+              </div>
+              {{end}}
+            </div>
+            {{end}}{{end}}
+            {{if not .Sheet.Minutes}}
+            <div class="card-body text-center text-secondary py-4">Nothing logged this week yet.</div>
+            {{end}}
+            <div class="card-footer d-flex align-items-center">
+              <span class="text-secondary">{{.Sheet.DaysWorked}} {{if eq .Sheet.DaysWorked 1}}day{{else}}days{{end}}</span>
+              <span class="ms-auto fw-bold tabular">Week total&nbsp;&nbsp;{{duration .Sheet.Minutes}}</span>
+            </div>
+          </div>
+
+          <div class="table-responsive d-none d-sm-block">
             <table class="table table-vcenter card-table">
               <thead>
                 <tr>

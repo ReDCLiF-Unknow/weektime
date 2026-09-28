@@ -137,7 +137,9 @@ def seed(api):
     def log(d, start, end, note=""):
         api("/api/entries", {"date": day(d), "start": start, "end": end, "note": note}, alex)
 
-    # This week, up to today: a freelancer's week with a client in it.
+    # This week: a freelancer's week with a client in it. All of it, whatever
+    # day this runs on, so the screenshots look the same on a Monday as on a
+    # Friday.
     week = [
         (0, "08:30", "10:00", "Inbox, invoices and planning the week"),
         (0, "10:15", "12:45", "Harbour Books: homepage wireframes"),
@@ -152,8 +154,7 @@ def seed(api):
         (4, "10:30", "12:00", "Usability test, round 1"),
     ]
     for d, start, end, note in week:
-        if d <= today.weekday():
-            log(d, start, end, note)
+        log(d, start, end, note)
 
     # Earlier weeks, so the sidebar has some history.
     for back in (1, 2, 3):

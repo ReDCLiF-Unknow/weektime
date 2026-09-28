@@ -644,3 +644,19 @@ func TestTheViewerCapIsStillACap(t *testing.T) {
 		t.Error("another link's viewers were counted against this one")
 	}
 }
+
+// The button between the arrows names the week on screen, so stepping back
+// and forth says where you are; clicking it still goes back to this week.
+func TestTheWeekButtonSaysWhichWeekItIs(t *testing.T) {
+	e := newEnv(t)
+	alex := e.register("Alex")
+	for path, label := range map[string]string{
+		"/week/2026-W39": "This week", "/week/2026-W38": "Last week", "/week/2026-W40": "Next week",
+		"/week/2026-W30": "Week 30", "/week/2025-W52": "Week 52, 2025",
+	} {
+		_, body := e.page(alex, path)
+		if !strings.Contains(body, `href="/"`) || !strings.Contains(body, ">"+label+"</a>") {
+			t.Errorf("%s: the button does not say %q", path, label)
+		}
+	}
+}

@@ -81,6 +81,7 @@ var funcs = template.FuncMap{
 	"dayLetter": func(date string) string { return formatDate(date, "Mon")[:1] },
 	"weekRange": weekRange,
 	"weekURL":   weekURL,
+	"weekLabel": weekLabel,
 	// row bundles an entry with the page it is shown on, for "entryrow".
 	"row": func(path string, e store.Entry) entryRow { return entryRow{Entry: e, Path: path} },
 	// barHeight is how tall a day's bar is in the week's chart, as a
@@ -131,6 +132,24 @@ func weekRange(w store.Week) string {
 }
 
 func weekURL(w store.Week) string { return "/week/" + w.String() }
+
+// weekLabel names week w as seen from this week: "This week", "Last week",
+// "Next week", and otherwise its number, "Week 37", with the year when it is
+// another year's.
+func weekLabel(w, this store.Week) string {
+	switch w {
+	case this:
+		return "This week"
+	case this.Prev():
+		return "Last week"
+	case this.Next():
+		return "Next week"
+	}
+	if w.Year != this.Year {
+		return "Week " + strconv.Itoa(w.Num) + ", " + strconv.Itoa(w.Year)
+	}
+	return "Week " + strconv.Itoa(w.Num)
+}
 
 // entryRow is what the "entryrow" template renders.
 type entryRow struct {

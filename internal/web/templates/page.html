@@ -83,7 +83,7 @@
             {{if eq .View "week"}}
             <div class="btn-group" role="group" aria-label="Weeks">
               <a class="btn btn-icon" href="{{weekURL .Sheet.Week.Prev}}" title="Previous week" aria-label="Previous week"><i class="ti ti-chevron-left"></i></a>
-              <a class="btn" href="/"{{if .IsThisWeek}} aria-current="page"{{end}}>This week</a>
+              <a class="btn week-now" href="/"{{if .IsThisWeek}} aria-current="page"{{else}} title="Back to this week"{{end}}>{{weekLabel .Sheet.Week .ThisWeek}}</a>
               <a class="btn btn-icon" href="{{weekURL .Sheet.Week.Next}}" title="Next week" aria-label="Next week"><i class="ti ti-chevron-right"></i></a>
             </div>
             <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#share-modal"><i class="ti ti-share me-1"></i>Share<span class="d-none d-md-inline">&nbsp;this week</span></button>

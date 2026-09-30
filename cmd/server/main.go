@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -21,11 +23,22 @@ func main() {
 	dbPath := flag.String("db", "weektime.db", "path to the SQLite database file")
 	flag.Parse()
 
+	// Whether the database is there already has to be known before opening
+	// it, which creates it when it is not.
+	_, statErr := os.Stat(*dbPath)
+	existed := statErr == nil
+
 	s, err := store.Open(*dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer s.Close() // only after serve has returned, so no request is still using it
+	users, err := s.UserCount()
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	log.Print(describeDB(*dbPath, existed, users))
 
 	// Ctrl-C, or the TERM a container runtime sends.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -56,6 +69,35 @@ func main() {
 		return // through the deferred Close, which log.Fatal would skip
 	}
 	log.Print("stopped")
+}
+
+// describeDB says which database the server is using and what is in it.
+//
+// Every timesheet lives in that one file, so a server that comes up on a new,
+// empty one where it used to have one has lost every timesheet, and every
+// private link made before now says it is invalid. That is what happens when
+// a container's /data is not on a volume that outlasts a redeploy, and the
+// app itself cannot tell it apart from a first run. So a new database is
+// announced loudly, where whoever runs the server looks first.
+func describeDB(path string, existed bool, users int) string {
+	if !existed {
+		return "database: created a new, empty one at " + path + `
+
+    If this is not the first time this server has started, its timesheets
+    are not where it is looking, and every private link made before now will
+    say it is invalid. Keep the database on storage that outlasts a restart:
+    with Docker, a volume for /data (docker run -v weektime:/data ...), and on
+    a hosting platform, its persistent storage mounted at /data.
+`
+	}
+	return fmt.Sprintf("database: %s, %s", path, plural(users, "timesheet"))
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return strconv.Itoa(n) + " " + word + "s"
 }
 
 // serve runs srv on ln until ctx is cancelled, then shuts it down and returns

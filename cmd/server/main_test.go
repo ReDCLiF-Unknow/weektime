@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -69,5 +70,23 @@ func TestShutdownFinishesRequestsInProgress(t *testing.T) {
 	// And nothing new is accepted afterwards.
 	if _, err := http.Get("http://" + ln.Addr().String() + "/"); err == nil {
 		t.Error("a new request was served after shutdown")
+	}
+}
+
+// A server that starts on a new, empty database where it used to have one
+// has lost every timesheet, and nothing else would say so until people
+// found their links no longer worked. The log says it the moment it starts.
+func TestANewDatabaseIsAnnounced(t *testing.T) {
+	fresh := describeDB("/data/weektime.db", false, 0)
+	for _, want := range []string{"created a new, empty one at /data/weektime.db", "every private link", "-v weektime:/data"} {
+		if !strings.Contains(fresh, want) {
+			t.Errorf("the start-up log for a new database does not say %q:\n%s", want, fresh)
+		}
+	}
+	for users, want := range map[int]string{0: "0 timesheets", 1: "1 timesheet", 7: "7 timesheets"} {
+		got := describeDB("/data/weektime.db", true, users)
+		if got != "database: /data/weektime.db, "+want {
+			t.Errorf("an existing database with %d: %q", users, got)
+		}
 	}
 }

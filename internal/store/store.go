@@ -288,6 +288,13 @@ func (s *Store) RenameUser(id int64, name string) error {
 	return nil
 }
 
+// UserCount is how many timesheets there are.
+func (s *Store) UserCount() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
 // MarkLinkSaved records that someone has their private link somewhere safe,
 // which stops the app reminding them about it.
 func (s *Store) MarkLinkSaved(id int64) error {

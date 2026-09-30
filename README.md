@@ -56,6 +56,41 @@ on first run.
 
 Either way, open <http://localhost:8080> and type your name.
 
+## Keep the database
+
+**Every timesheet is in one SQLite file, and nothing else anywhere knows about them.** If a server
+starts without that file, it makes a new, empty one: every timesheet is gone, and every private link
+made before then says it is invalid. There is no password or email to get them back through.
+
+So put the database somewhere that outlasts a restart, an upgrade and a redeploy:
+
+- **Docker**: give `/data` a volume, as the command above does with `-v weektime:/data`. Without one,
+  Docker gives each new container a fresh anonymous volume, so replacing the container to upgrade
+  quietly starts from nothing. The compose file sets one up.
+- **A hosting platform** (Coolify, Railway, Fly.io, Render and the like): add its persistent storage
+  and mount it at `/data`. Many of them throw the container's disk away on every deploy.
+- **The binary**: `weektime.db` is created in the folder you run it from. Unpacking a new release into
+  a new folder and running it there starts a new, empty database; pass the old one with
+  `-db C:\path\to\weektime.db`, or run it from the same folder.
+
+The server says what it found every time it starts. A database it already had:
+
+```
+database: /data/weektime.db, 12 timesheets
+```
+
+and one it had to create, which is only right the very first time:
+
+```
+database: created a new, empty one at /data/weektime.db
+
+    If this is not the first time this server has started, its timesheets
+    are not where it is looking, ...
+```
+
+To back it up, copy it with `sqlite3 weektime.db ".backup out.db"` while the server runs, or copy the
+file while it is stopped.
+
 ## Run from source
 
 ```

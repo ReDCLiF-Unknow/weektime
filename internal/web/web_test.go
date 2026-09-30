@@ -660,3 +660,51 @@ func TestTheWeekButtonSaysWhichWeekItIs(t *testing.T) {
 		}
 	}
 }
+
+// A private link is the account, so it has to keep working: after the
+// server is stopped and started again on the same database, days later,
+// with the clean-up and upgrades that run on start-up in between.
+func TestAPrivateLinkStillWorksDaysLater(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keep.db")
+	start := func(now time.Time) (*httptest.Server, *store.Store) {
+		s, err := store.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		app := New(s)
+		app.now = func() time.Time { return now }
+		return httptest.NewServer(app), s
+	}
+
+	srv, st := start(wednesday)
+	e := &env{t: t, srv: srv, st: st}
+	alex := e.register("Alex")
+	e.log(alex, "2026-09-23", "09:00", "11:30", "Before the restart")
+	srv.Close()
+	st.Close()
+
+	later := wednesday.AddDate(0, 0, 5)
+	srv, st = start(later)
+	defer func() { srv.Close(); st.Close() }()
+	e = &env{t: t, srv: srv, st: st}
+
+	// A browser that has never seen the server opens the link.
+	resp, err := noRedirect.Get(srv.URL + "/u/" + alex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || cookieFrom(resp) != alex {
+		t.Fatalf("the link five days later: status %d, cookie %q", resp.StatusCode, cookieFrom(resp))
+	}
+	// ...and a browser that kept its cookie is still signed in.
+	if _, body := e.page(alex, "/week/2026-W39"); !strings.Contains(body, "Before the restart") {
+		t.Error("the week logged before the restart is not there after it")
+	}
+	// The cookie outlasts a few days by a long way.
+	for _, c := range resp.Cookies() {
+		if c.Name == cookieName && c.MaxAge < 300*24*3600 {
+			t.Errorf("the sign-in cookie only lasts %d seconds", c.MaxAge)
+		}
+	}
+}

@@ -6,13 +6,31 @@
   <title>{{.Title}} · Weektime</title>
   {{template "assets"}}
 </head>
-<body>
+<body{{if .Dead}} data-dead{{end}}>
 <div class="page page-center">
   <div class="container container-tight py-4">
     <div class="text-center mb-4">
       <span class="avatar avatar-lg bg-primary text-white"><i class="ti ti-clock-hour-4 fs-1"></i></span>
       <div class="h1 mt-3 mb-0">Weektime</div>
     </div>
+
+    {{if not (or .Link .Switch)}}
+    <!-- What this browser remembers: the timesheets used on it, and the weeks
+         shared with it. Only the browser knows, so its script fills this in. -->
+    <div class="card card-md mb-3 d-none" id="remembered">
+      <div class="card-body">
+        <div data-timesheets-wrap class="d-none">
+          <h2 class="h3 mb-1">Welcome back</h2>
+          <p class="text-secondary small mb-3">This browser remembers these timesheets.</p>
+          <div class="d-grid gap-2" data-timesheets></div>
+        </div>
+        <div data-shared-wrap class="d-none">
+          <div class="text-uppercase text-secondary small fw-bold mt-3 mb-1">Shared with you</div>
+          <div class="list-group list-group-flush" data-shared></div>
+        </div>
+      </div>
+    </div>
+    {{end}}
 
     <div class="card card-md">
       <div class="card-body">
@@ -86,6 +104,46 @@
     {{end}}
   </div>
 </div>
+{{if not (or .Link .Switch)}}
+{{template "memory"}}
+<script>
+(function () {
+  var wt = window.weektime;
+  // A private link that is nobody's here (this server lost it, or it was
+  // mistyped) is no use offering again.
+  if (document.body.hasAttribute('data-dead')) {
+    var dead = /^\/u\/([0-9a-f]{64})/.exec(location.pathname);
+    if (dead) wt.forgetTimesheet(dead[1]);
+  }
+
+  var box = document.getElementById('remembered');
+  var next = (document.querySelector('input[name=next]') || {}).value || '/';
+  var sheets = wt.timesheets(), weeks = wt.shared();
+
+  // Each remembered timesheet is one click away: its own private link,
+  // which signs this browser in to it.
+  var list = box.querySelector('[data-timesheets]');
+  sheets.forEach(function (t) {
+    var a = wt.el('a', 'btn btn-primary text-truncate', 'Continue as ' + t.name);
+    a.href = '/u/' + t.token + (next !== '/' ? '?next=' + encodeURIComponent(next) : '');
+    list.appendChild(a);
+  });
+  box.querySelector('[data-timesheets-wrap]').classList.toggle('d-none', sheets.length === 0);
+
+  var shared = box.querySelector('[data-shared]');
+  weeks.forEach(function (s) {
+    var a = wt.el('a', 'list-group-item list-group-item-action px-0');
+    a.href = '/s/' + s.token;
+    a.appendChild(wt.el('div', 'fw-medium text-truncate', s.name));
+    a.appendChild(wt.el('div', 'text-secondary small', s.range));
+    shared.appendChild(a);
+  });
+  box.querySelector('[data-shared-wrap]').classList.toggle('d-none', weeks.length === 0);
+
+  box.classList.toggle('d-none', sheets.length === 0 && weeks.length === 0);
+})();
+</script>
+{{end}}
 {{if .Link}}
 <script>
   document.getElementById('copy').addEventListener('click', function () {

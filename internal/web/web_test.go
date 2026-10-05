@@ -708,3 +708,69 @@ func TestAPrivateLinkStillWorksDaysLater(t *testing.T) {
 		}
 	}
 }
+
+// The browser remembers the timesheets used on it and the weeks shared with
+// it (see "memory" in partials.html). These are the server's halves of that:
+// what each page hands its script.
+func TestWhatPagesTellTheBrowserToRemember(t *testing.T) {
+	e := newEnv(t)
+	alex := e.register("Alex")
+	sam := e.register("Sam")
+
+	// The profile's link comes with whose it is.
+	req, _ := http.NewRequest("GET", e.srv.URL+"/me/link", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: alex})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link struct {
+		Link string `json:"link"`
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	json.NewDecoder(resp.Body).Decode(&link)
+	resp.Body.Close()
+	if !strings.HasSuffix(link.Link, "/u/"+alex) || link.ID == 0 || link.Name != "Alex" {
+		t.Errorf("/me/link: %+v", link)
+	}
+
+	// A shared week says what to remember about it, and whether the one
+	// looking is its owner, who is not being shared with.
+	var sh struct{ Token string }
+	e.call("POST", "/api/weeks/current/share", sam, "", &sh)
+	for who, token := range map[string]string{"a stranger": "", "Alex": alex, "Sam, its owner": sam} {
+		_, body := e.page(token, "/s/"+sh.Token)
+		if !strings.Contains(body, `data-share="`+sh.Token+`"`) || !strings.Contains(body, `data-name="Sam"`) ||
+			!strings.Contains(body, `data-range="21 – 27 Sep 2026"`) || !strings.Contains(body, "rememberShare") {
+			t.Errorf("the shared week, for %s, does not say what to remember", who)
+		}
+		if owner := bodyTag(body, "data-owner"); owner != (token == sam) {
+			t.Errorf("the shared week, for %s, marks the viewer as owner: %v", who, owner)
+		}
+	}
+
+	// A link that is nobody's says so, so the browser can stop offering it;
+	// the ordinary welcome page does not.
+	if _, body := e.page("", "/u/"+strings.Repeat("ab", 32)); !bodyTag(body, "data-dead") {
+		t.Error("the page for a dead private link is not marked")
+	}
+	if _, body := e.page("", "/welcome"); bodyTag(body, "data-dead") || !strings.Contains(body, `id="remembered"`) {
+		t.Error("the welcome page is marked dead, or has nowhere to offer remembered timesheets")
+	}
+	// Signed in, the page has room for the lists and its script.
+	_, body := e.page(alex, "/shared")
+	for _, s := range []string{`id="sidebar-shared"`, `id="shared-with-you"`, `id="other-timesheets"`, "window.weektime"} {
+		if !strings.Contains(body, s) {
+			t.Errorf("the shared links page lacks %s", s)
+		}
+	}
+}
+
+// bodyTag reports whether a page's <body> tag has attr. The page's script
+// mentions the same names, so searching the whole page would find them there.
+func bodyTag(page, attr string) bool {
+	_, rest, ok := strings.Cut(page, "<body")
+	tag, _, _ := strings.Cut(rest, ">")
+	return ok && strings.Contains(tag, attr)
+}

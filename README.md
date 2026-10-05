@@ -149,6 +149,27 @@ hash of the token is stored, so it cannot be read back out of the database.
 Anyone who has your private link can read and change your hours, so treat it like a password. To show
 somebody your hours, share a week instead.
 
+### Remembered on this browser
+
+Each browser also keeps its own list, in its local storage, of the timesheets used on it. The server
+knows nothing about that list.
+
+- **Signed out**, for instance after clearing cookies, the welcome page offers **Continue as Alex**
+  for each one, which is its private link: one click and you are back in.
+- **Several timesheets**, say your own and a client project's, live side by side: **Your profile**
+  lists the others on this browser, and **Switch** changes to one without asking twice. **Forget**
+  takes one off the list.
+- A remembered link the server no longer knows (its database was lost, see
+  [Keep the database](#keep-the-database)) is dropped the first time it is tried. Remembering a link in
+  the browser cannot bring back a timesheet the server has lost.
+
+This keeps your private link in the browser's local storage, where scripts on the page can read it,
+unlike the sign-in cookie. The pages run only this server's own scripts, show every remembered name
+as plain text, and are not allowed to fetch anything from another site, which leaves an attacker
+little room, but it is a trade of some safety for convenience. On a computer other people use,
+**Forget** your timesheets there, or don't sign in there at all: anyone using that browser can
+continue as you.
+
 ## Sharing a week
 
 **Share this week** makes a read-only link, `/s/<code>`, for that one week. Whoever opens it sees your
@@ -161,6 +182,10 @@ it does not sign them in as anybody.
 - Asking to share the same week again gives the same link, so there are never several in circulation.
 - **Shared links** in the sidebar lists every link you have out, with its week and total. **Revoke** turns
   one off for good; anyone looking at it is told so at once. Sharing the week again makes a new link.
+- **Shared with you**: the browser of whoever opens a shared week remembers it, so they can go back
+  to it. With a timesheet of their own it is in the sidebar and on **Shared links**; without one, on
+  the welcome page. A revoked week is dropped the next time it is opened, and **Forget** drops one
+  by hand. Like the list of timesheets, it lives only in that browser.
 
 If you expose the server beyond your own network, put it behind HTTPS so links and cookies are protected.
 If you put it behind a reverse proxy, don't let the proxy buffer `/events` or `/s/*/events` (the server

@@ -391,6 +391,9 @@ type simplePage struct {
 	Link string
 	// Switch is set on the page that asks whether to change timesheets.
 	Switch *switchAsk
+	// Dead is set when the page answers a private link that is nobody's,
+	// so the browser can stop offering it.
+	Dead bool
 }
 
 // switchAsk is what the page asking to change timesheets needs to say.
@@ -475,8 +478,9 @@ func (s *Server) privateLink(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	u, err := s.store.UserByToken(token)
 	if err != nil {
-		s.renderTmpl(w, http.StatusNotFound, "welcome.html",
-			welcomePage("", "That link isn't anyone's timesheet. Check it was copied whole, or start a new one."))
+		p := welcomePage("", "That link isn't anyone's timesheet. Check it was copied whole, or start a new one.")
+		p.Dead = true
+		s.renderTmpl(w, http.StatusNotFound, "welcome.html", p)
 		return
 	}
 	next := safeNext(r.URL.Query().Get("next"))
@@ -541,7 +545,9 @@ func (s *Server) meGet(w http.ResponseWriter, r *http.Request, u *store.User) {
 func (s *Server) meLink(w http.ResponseWriter, r *http.Request, u *store.User) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"link": privateLink(r, tokenFrom(r))})
+	// The id and name let the browser remember which timesheet the link
+	// is, so it can offer it again (see "memory" in partials.html).
+	json.NewEncoder(w).Encode(map[string]any{"link": privateLink(r, tokenFrom(r)), "id": u.ID, "name": u.Name})
 }
 
 // meLinkSaved records that someone has their private link somewhere safe.

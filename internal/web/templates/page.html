@@ -6,7 +6,7 @@
   <title>{{if eq .View "shared"}}Shared links{{else}}{{weekRange .Sheet.Week}}{{end}} · Weektime</title>
   {{template "assets"}}
 </head>
-<body>
+<body data-me="{{.User.ID}}">
 <div class="page">
 
   <!-- Sidebar -->
@@ -52,6 +52,15 @@
           </li>
           {{end}}
         </ul>
+
+        <!-- Weeks other people have shared with this browser. Only the browser
+             knows them, so its script fills this in (see "memory"). -->
+        <div id="sidebar-shared" class="d-none">
+          <div class="px-3 mt-3 mb-1">
+            <div class="text-uppercase text-secondary small fw-bold">Shared with you</div>
+          </div>
+          <ul class="navbar-nav" data-list></ul>
+        </div>
 
         <a href="#profile-modal" class="sidebar-user d-flex align-items-center text-decoration-none text-reset mt-auto pt-3 pb-1 px-3" data-bs-toggle="modal" title="Your profile" id="profile-open">
           <span class="d-flex align-items-center flex-fill" style="min-width:0" data-live="me-chip">
@@ -161,6 +170,14 @@
           </div>
         </div></div>
         {{end}}
+        </div>
+
+        <!-- Weeks other people have sent: remembered by this browser when it
+             opened them, so its script fills this in (see "memory"). -->
+        <div id="shared-with-you" class="d-none mt-4">
+          <h3 class="mb-1">Shared with you</h3>
+          <p class="text-secondary small mb-2">Weeks other people have sent you, as this browser remembers opening them.</p>
+          <div class="card"><div class="list-group list-group-flush" data-list></div></div>
         </div>
 
       {{else}}
@@ -296,6 +313,14 @@
         </div>
         <div class="form-hint mt-1">Keep it to yourself: anyone who has it can read and change your hours. To show someone a week, share that week instead.</div>
         <div class="mt-2 small text-secondary">CLI: <code>weektime -t &lt;link&gt; week</code></div>
+
+        <!-- The other timesheets used on this browser, which it remembers (see "memory") -->
+        <div id="other-timesheets" class="d-none">
+          <hr class="my-4">
+          <h6 class="mb-1"><i class="ti ti-calendar-week me-1"></i>Other timesheets on this browser</h6>
+          <p class="text-secondary small mb-2">This browser remembers the timesheets used on it, so you can switch between them. This one stays remembered too.</p>
+          <div class="list-group list-group-flush" data-list></div>
+        </div>
       </div>
     </div>
   </div>
@@ -314,6 +339,7 @@
 <div id="toasts" aria-live="polite"></div>
 
 <script src="/static/vendor/tabler.min.js"></script>
+{{template "memory"}}
 <script>
 (function () {
   // ---- theme ----
@@ -449,6 +475,7 @@
       pending = false;
       apply(html);
       if (form.dataset.toast) toast(form.dataset.toast, null, 3000);
+      if (new URL(form.action).pathname === '/me') rememberMe(true); // a new name to remember
       if (undoID) toast('Entry deleted', { label: 'Undo', run: function () { restore(undoID); } }, 8000);
     }).catch(function () { toast('Something went wrong. Please try again.'); });
   });
@@ -558,6 +585,99 @@
     if (opener && !(modal && modal.classList.contains('show'))) opener.click();
   }
   openFromHash(location.hash);
+
+  // ---- what this browser remembers ----
+  // The timesheet signed in here joins the browser's list once a session,
+  // which is all it takes: its link never changes. That list is what lets
+  // the welcome page offer it again, and the profile switch between them.
+  var wt = window.weektime, me = document.body.getAttribute('data-me');
+  function rememberMe(force) {
+    try { if (!force && sessionStorage.getItem('weektime.remembered') === me) { drawTimesheets(); return; } } catch (e) {}
+    fetch('/me/link', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (res) { return res.json(); })
+      .then(function (d) {
+        var m = /\/u\/([0-9a-f]{64})$/.exec(d.link || '');
+        if (m) wt.rememberTimesheet({ id: d.id, name: d.name, token: m[1] });
+        try { sessionStorage.setItem('weektime.remembered', me); } catch (e) {}
+        drawTimesheets();
+      })
+      .catch(function () {});
+  }
+
+  // drawTimesheets lists, in the profile, the other timesheets used here,
+  // each with a way to switch to it and a way to forget it.
+  function drawTimesheets() {
+    var box = document.getElementById('other-timesheets'), list = box.querySelector('[data-list]');
+    var others = wt.timesheets().filter(function (t) { return String(t.id) !== me; });
+    list.textContent = '';
+    others.forEach(function (t) {
+      var row = wt.el('div', 'list-group-item px-0 d-flex align-items-center gap-2');
+      row.appendChild(wt.el('span', 'flex-fill text-truncate', t.name));
+      // A POST from this page: switching is asked for here, so it needs no
+      // second "are you sure" (and the one left is remembered as well).
+      var form = wt.el('form');
+      form.method = 'post';
+      form.action = '/u/' + t.token;
+      var go = wt.el('button', 'btn btn-sm', 'Switch');
+      go.type = 'submit';
+      form.appendChild(go);
+      row.appendChild(form);
+      var forget = wt.el('button', 'btn btn-icon btn-sm btn-ghost-secondary');
+      forget.type = 'button';
+      forget.title = 'Forget on this browser';
+      forget.setAttribute('aria-label', 'Forget ' + t.name + ' on this browser');
+      forget.appendChild(wt.el('i', 'ti ti-x'));
+      forget.addEventListener('click', function () { wt.forgetTimesheet(t.token); drawTimesheets(); });
+      row.appendChild(forget);
+      list.appendChild(row);
+    });
+    box.classList.toggle('d-none', others.length === 0);
+  }
+
+  // drawShared lists the weeks shared with this browser: in the sidebar,
+  // and with a way to forget each on the Shared links page.
+  function drawShared() {
+    var weeks = wt.shared();
+    var side = document.getElementById('sidebar-shared'), sideList = side.querySelector('[data-list]');
+    sideList.textContent = '';
+    weeks.forEach(function (s) {
+      var li = wt.el('li', 'nav-item');
+      var a = wt.el('a', 'nav-link');
+      a.href = '/s/' + s.token;
+      var icon = wt.el('span', 'nav-link-icon d-md-none d-lg-inline-block');
+      icon.appendChild(wt.el('i', 'ti ti-share'));
+      a.appendChild(icon);
+      var title = wt.el('span', 'nav-link-title text-truncate', s.name);
+      title.title = s.name + ', ' + s.range;
+      a.appendChild(title);
+      li.appendChild(a);
+      sideList.appendChild(li);
+    });
+    side.classList.toggle('d-none', weeks.length === 0);
+
+    var page = document.getElementById('shared-with-you');
+    if (!page) return;
+    var list = page.querySelector('[data-list]');
+    list.textContent = '';
+    weeks.forEach(function (s) {
+      var row = wt.el('div', 'list-group-item d-flex align-items-center gap-3');
+      var text = wt.el('a', 'flex-fill text-reset text-decoration-none');
+      text.href = '/s/' + s.token;
+      text.appendChild(wt.el('div', 'fw-bold text-truncate', s.name));
+      text.appendChild(wt.el('div', 'text-secondary small', s.range));
+      row.appendChild(text);
+      var forget = wt.el('button', 'btn btn-sm');
+      forget.type = 'button';
+      forget.textContent = 'Forget';
+      forget.addEventListener('click', function () { wt.forgetShare(s.token); drawShared(); });
+      row.appendChild(forget);
+      list.appendChild(row);
+    });
+    page.classList.toggle('d-none', weeks.length === 0);
+  }
+
+  rememberMe(false);
+  drawShared();
 })();
 </script>
 </body>

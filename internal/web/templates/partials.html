@@ -208,3 +208,72 @@
   </div>
 </div>
 {{end}}
+
+{{/* What this browser remembers, in local storage: the timesheets used on it,
+     and the weeks people have shared with it. The server knows nothing of
+     either list. Entries keep only tokens, checked against their exact form
+     before use, and are shown as text, never as HTML, so a list tampered with
+     cannot put anything on the page. Defines window.weektime. */}}
+{{define "memory"}}
+<script>
+window.weektime = (function () {
+  var TIMESHEETS = 'weektime.timesheets', SHARED = 'weektime.shared';
+  var privateToken = /^[0-9a-f]{64}$/, shareToken = /^[A-Za-z0-9_-]{16}$/;
+
+  function read(key, valid) {
+    try {
+      var list = JSON.parse(localStorage.getItem(key) || '[]');
+      return Array.isArray(list) ? list.filter(valid) : [];
+    } catch (e) { return []; }
+  }
+  function write(key, list) {
+    // Most recently used first, and only so many: it is a convenience.
+    list.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    try { localStorage.setItem(key, JSON.stringify(list.slice(0, 20))); } catch (e) {}
+  }
+  function isTimesheet(t) {
+    return t && typeof t.token === 'string' && privateToken.test(t.token) && typeof t.name === 'string';
+  }
+  function isShare(s) {
+    return s && typeof s.token === 'string' && shareToken.test(s.token) && typeof s.name === 'string' &&
+      typeof s.range === 'string';
+  }
+
+  return {
+    timesheets: function () { return read(TIMESHEETS, isTimesheet); },
+    shared: function () { return read(SHARED, isShare); },
+
+    // rememberTimesheet records the timesheet this browser is signed in to.
+    // An entry with the same id but another token is a timesheet this
+    // server no longer has (its database was replaced), so it goes.
+    rememberTimesheet: function (t) {
+      if (!isTimesheet(t)) return;
+      var list = read(TIMESHEETS, isTimesheet).filter(function (o) { return o.token !== t.token && o.id !== t.id; });
+      list.push({ id: t.id, name: t.name, token: t.token, at: Date.now() });
+      write(TIMESHEETS, list);
+    },
+    forgetTimesheet: function (token) {
+      write(TIMESHEETS, read(TIMESHEETS, isTimesheet).filter(function (o) { return o.token !== token; }));
+    },
+    rememberShare: function (s) {
+      if (!isShare(s)) return;
+      var list = read(SHARED, isShare).filter(function (o) { return o.token !== s.token; });
+      list.push({ token: s.token, name: s.name, range: s.range, at: Date.now() });
+      write(SHARED, list);
+    },
+    forgetShare: function (token) {
+      write(SHARED, read(SHARED, isShare).filter(function (o) { return o.token !== token; }));
+    },
+
+    // el builds an element with a class and text, the only way these lists
+    // put anything on a page.
+    el: function (tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    }
+  };
+})();
+</script>
+{{end}}

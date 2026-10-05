@@ -8,7 +8,7 @@
   <!-- A shared week is for the people it was sent to, not for search engines. -->
   <meta name="robots" content="noindex, nofollow">
 </head>
-<body>
+<body data-share="{{.Token}}" data-name="{{.Sheet.Name}}" data-range="{{weekRange .Sheet.Week}}"{{if .Owner}} data-owner{{end}}>
 <div class="page">
   <div class="page-wrapper">
     <div class="page-header">
@@ -128,8 +128,18 @@
     </div>
   </div>
 </div>
+{{template "memory"}}
 <script>
 (function () {
+  // A week someone has shared with this browser is remembered, so it is
+  // there to go back to: on the welcome page, and in the sidebar of a
+  // timesheet of its own. The owner looking at their own link is not
+  // being shared with.
+  var b = document.body;
+  if (!b.hasAttribute('data-owner')) {
+    window.weektime.rememberShare({ token: b.getAttribute('data-share'), name: b.getAttribute('data-name'), range: b.getAttribute('data-range') });
+  }
+
   document.getElementById('theme-toggle').addEventListener('click', function () {
     var root = document.documentElement;
     var next = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';

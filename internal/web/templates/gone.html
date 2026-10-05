@@ -23,5 +23,13 @@
     </div>
   </div>
 </div>
+{{template "memory"}}
+<script>
+  // A link that shows nothing any more is no use remembering.
+  (function () {
+    var m = /^\/s\/([A-Za-z0-9_-]{16})/.exec(location.pathname);
+    if (m) window.weektime.forgetShare(m[1]);
+  })();
+</script>
 </body>
 </html>
